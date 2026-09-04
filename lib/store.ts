@@ -113,8 +113,12 @@ class RedisStore implements Store {
 
   private client(): Promise<import("@upstash/redis").Redis> {
     if (!this.clientPromise) {
-      this.clientPromise = import("@upstash/redis").then(({ Redis }) =>
-        Redis.fromEnv()
+      const url =
+        process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+      const token =
+        process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
+      this.clientPromise = import("@upstash/redis").then(
+        ({ Redis }) => new Redis({ url: url!, token: token! })
       );
     }
     return this.clientPromise;
@@ -241,8 +245,8 @@ let instance: Store | null = null;
 export function getStore(): Store {
   if (!instance) {
     const useRedis =
-      !!process.env.UPSTASH_REDIS_REST_URL &&
-      !!process.env.UPSTASH_REDIS_REST_TOKEN;
+      !!(process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL) &&
+      !!(process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN);
     instance = useRedis ? new RedisStore() : new FileStore();
   }
   return instance;

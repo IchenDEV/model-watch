@@ -39,7 +39,7 @@ npm run dev
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `UPSTASH_REDIS_REST_URL` | 否 | Upstash Redis REST URL；与 TOKEN 同时存在时启用 Redis 存储 |
+| `UPSTASH_REDIS_REST_URL` | 否 | Upstash Redis REST URL；与 TOKEN 同时存在时启用 Redis 存储（Vercel Marketplace 注入的 `KV_REST_API_URL` / `KV_REST_API_TOKEN` 也会被自动识别） |
 | `UPSTASH_REDIS_REST_TOKEN` | 否 | Upstash Redis REST Token |
 | `CRON_SECRET` | 否 | 配置后 `/api/refresh` 要求 `Authorization: Bearer <secret>` 或 `?secret=` |
 | `FEISHU_WEBHOOK_URL` | 否 | 飞书自定义机器人 webhook，未配置则跳过通知 |
@@ -50,7 +50,7 @@ npm run dev
 ## 部署（Vercel）
 
 1. 把仓库 push 到 GitHub，在 Vercel 中 **Import Project**。
-2. 在 Vercel 项目中添加 **Upstash Redis** 集成（Storage → Create Database → Upstash），它会自动注入 `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`。
+2. 在 Vercel 项目中添加 **Upstash Redis** 集成（Storage → Create Database → Upstash），它会自动注入 Redis 连接环境变量（`KV_REST_API_*` 或 `UPSTASH_REDIS_REST_*`，代码均兼容）。
 3. 按需配置上表其余环境变量（至少建议 `CRON_SECRET`、`SITE_URL`）。
 4. Deploy。部署后访问一次 `/api/refresh` 完成 bootstrap。
 
