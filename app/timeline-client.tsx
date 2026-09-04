@@ -35,6 +35,7 @@ export default function TimelineClient({
       if (sourceFilter !== "all" && e.source !== sourceFilter) return false;
       if (!q) return true;
       return (
+        e.externalId.toLowerCase().includes(q) ||
         e.title.toLowerCase().includes(q) ||
         e.provider.toLowerCase().includes(q) ||
         e.summary.toLowerCase().includes(q)
@@ -90,9 +91,9 @@ export default function TimelineClient({
                 href={e.url}
                 target="_blank"
                 rel="noreferrer"
-                className="font-medium text-zinc-100 hover:underline"
+                className="font-mono font-medium text-zinc-100 hover:underline"
               >
-                {e.title}
+                {e.externalId}
               </a>
               {e.sources.map((s) => (
                 <span
@@ -104,7 +105,8 @@ export default function TimelineClient({
               ))}
             </div>
             <div className="mt-1 text-sm text-zinc-500">
-              {e.provider} · {relativeTime(e.publishedAt ?? e.detectedAt)}
+              {e.title} · {e.provider} ·{" "}
+              {relativeTime(e.publishedAt ?? e.detectedAt)}
             </div>
             {e.summary && (
               <p className="mt-2 max-w-3xl text-sm text-zinc-400">

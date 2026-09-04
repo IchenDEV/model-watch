@@ -1,9 +1,8 @@
 import type { SourceAdapter } from "../types";
 import { openrouter } from "./openrouter";
 import { modelsdev } from "./modelsdev";
-import { blogs } from "./blogs";
 import { huggingface } from "./huggingface";
 
 export function getSources(): SourceAdapter[] {
-  return [openrouter, modelsdev, blogs, huggingface];
+  return [openrouter, modelsdev, huggingface];
 }

@@ -14,7 +14,7 @@ export async function notifyFeishu(events: ModelEvent[]): Promise<void> {
   const siteUrl = process.env.SITE_URL || "http://localhost:3000";
 
   const lines = events.slice(0, MAX_LINES).map(
-    (e) => `[${e.source}] ${e.title}（${e.provider}）\n${e.url}`
+    (e) => `[${e.source}] ${e.externalId}\n${e.url}`
   );
   let text = `🆕 发现 ${events.length} 个新模型\n${lines.join("\n")}`;
   if (events.length > MAX_LINES) {
