@@ -118,12 +118,7 @@ class RedisStore implements Store {
       const token =
         process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
       this.clientPromise = import("@upstash/redis").then(
-        ({ Redis }) =>
-          new Redis({
-            url: url!,
-            token: token!,
-            automaticDeserialization: false,
-          })
+        ({ Redis }) => new Redis({ url: url!, token: token! })
       );
     }
     return this.clientPromise;
@@ -178,9 +173,9 @@ class RedisStore implements Store {
     if (!ids || ids.length === 0) return [];
     const pipe = redis.pipeline();
     for (const id of ids) pipe.hgetall(`event:${id}`);
-    const rows = (await pipe.exec()) as (Record<string, string> | null)[];
+    const rows = (await pipe.exec()) as (Record<string, unknown> | null)[];
     return rows
-      .filter((r): r is Record<string, string> => !!r && !!r.id)
+      .filter((r): r is Record<string, unknown> => !!r && !!r.id)
       .map(deserializeEvent);
   }
 
@@ -229,17 +224,26 @@ function serializeEvent(e: ModelEvent): Record<string, string> {
   };
 }
 
-function deserializeEvent(r: Record<string, string>): ModelEvent {
+function jsonField(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return v;
+  }
+}
+
+function deserializeEvent(r: Record<string, unknown>): ModelEvent {
   return {
-    id: r.id,
-    source: r.source,
-    externalId: r.externalId,
-    title: r.title,
-    provider: r.provider,
-    url: r.url,
-    summary: r.summary,
-    tags: JSON.parse(r.tags || "[]"),
-    sources: JSON.parse(r.sources || "[]"),
+    id: String(r.id),
+    source: String(r.source),
+    externalId: String(r.externalId),
+    title: String(r.title),
+    provider: String(r.provider),
+    url: String(r.url),
+    summary: String(r.summary ?? ""),
+    tags: (jsonField(r.tags) as string[]) ?? [],
+    sources: (jsonField(r.sources) as string[]) ?? [],
     detectedAt: Number(r.detectedAt),
     publishedAt: r.publishedAt ? Number(r.publishedAt) : undefined,
   };
