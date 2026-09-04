@@ -15,6 +15,7 @@ export function toEvent(
     id: eventId(src, item.externalId),
     source: src,
     externalId: item.externalId,
+    canonical: "", // 由 refresh 流程填入
     title: item.title,
     provider: item.provider,
     url: item.url,

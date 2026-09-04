@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ModelEvent } from "@/lib/types";
+import { displayName, type ModelEvent } from "@/lib/types";
 
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -35,6 +35,7 @@ export default function TimelineClient({
       if (sourceFilter !== "all" && e.source !== sourceFilter) return false;
       if (!q) return true;
       return (
+        displayName(e).toLowerCase().includes(q) ||
         e.externalId.toLowerCase().includes(q) ||
         e.title.toLowerCase().includes(q) ||
         e.provider.toLowerCase().includes(q) ||
@@ -93,7 +94,7 @@ export default function TimelineClient({
                 rel="noreferrer"
                 className="font-mono font-medium text-zinc-100 hover:underline"
               >
-                {e.externalId}
+                {displayName(e)}
               </a>
               {e.sources.map((s) => (
                 <span

@@ -1,4 +1,4 @@
-import type { ModelEvent } from "./types";
+import { displayName, type ModelEvent } from "./types";
 
 export function escapeXml(s: string): string {
   return s
@@ -19,7 +19,7 @@ export function renderRss(events: ModelEvent[]): string {
     .map((e) => {
       const date = new Date(e.publishedAt ?? e.detectedAt).toUTCString();
       return `    <item>
-      <title>${escapeXml(e.externalId)}</title>
+      <title>${escapeXml(displayName(e))}</title>
       <link>${escapeXml(e.url)}</link>
       <guid isPermaLink="false">${escapeXml(e.id)}</guid>
       <pubDate>${date}</pubDate>
@@ -50,7 +50,7 @@ export function renderAtom(events: ModelEvent[]): string {
     .map((e) => {
       const date = new Date(e.publishedAt ?? e.detectedAt).toISOString();
       return `  <entry>
-    <title>${escapeXml(e.externalId)}</title>
+    <title>${escapeXml(displayName(e))}</title>
     <link href="${escapeXml(e.url)}"/>
     <id>urn:model-watch:${escapeXml(e.id)}</id>
     <updated>${date}</updated>

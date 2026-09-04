@@ -1,7 +1,15 @@
+export function displayName(e: {
+  canonical?: string;
+  externalId: string;
+}): string {
+  return e.canonical ? e.canonical.replace(/^([^:]+):/, "$1/") : e.externalId;
+}
+
 export interface ModelEvent {
   id: string; // sha1(source + ":" + externalId)
   source: string;
   externalId: string;
+  canonical: string; // "vendor:model-name"，跨源去重键，也用于统一展示
   title: string;
   provider: string;
   url: string;
