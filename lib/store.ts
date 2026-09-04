@@ -118,7 +118,12 @@ class RedisStore implements Store {
       const token =
         process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
       this.clientPromise = import("@upstash/redis").then(
-        ({ Redis }) => new Redis({ url: url!, token: token! })
+        ({ Redis }) =>
+          new Redis({
+            url: url!,
+            token: token!,
+            automaticDeserialization: false,
+          })
       );
     }
     return this.clientPromise;
