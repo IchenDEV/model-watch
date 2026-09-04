@@ -1,0 +1,15 @@
+name: poll
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger refresh
+        run: |
+          curl -fsSL -X POST "${{ vars.REFRESH_URL }}/api/refresh" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
