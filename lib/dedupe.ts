@@ -34,6 +34,8 @@ const VENDOR_ALIASES: Record<string, string> = {
   "bytedance-seed": "bytedance",
   "meta-llama": "meta",
   qwen: "alibaba",
+  "google-vertex": "google",
+  "google-vertex-anthropic": "anthropic",
 };
 
 // models.dev bedrock-style keys: "us.anthropic.claude-3-5-sonnet-..." —
@@ -55,9 +57,18 @@ const BEDROCK_PREFIXES = new Set([
   "twelvelabs",
 ]);
 
-export function canonicalKey(source: string, externalId: string): string {
+export function canonicalKey(
+  source: string,
+  externalId: string,
+  vendorHint?: string
+): string {
+  // 博客文章是公告而非模型清单，不参与跨源合并，按文章链接去重即可
+  if (source === "blogs") return `blogs:${externalId}`;
+
   const segments = externalId.split("/");
-  const vendorRaw = (segments[0] || "").toLowerCase();
+  const vendorRaw = (vendorHint ?? segments[0] ?? "")
+    .toLowerCase()
+    .replace(/^~/, "");
   const vendor = VENDOR_ALIASES[vendorRaw] ?? vendorRaw;
 
   let name = segments[segments.length - 1] || "";
@@ -69,6 +80,8 @@ export function canonicalKey(source: string, externalId: string): string {
   }
   name = name
     .toLowerCase()
+    .replace(/@.*$/, "") // region 后缀：gemini-3.7-flash@eu
+    .replace(/:(batch|free)$/, "") // openrouter 端点变体：claude-fable-5.1:batch
     .replace(/_/g, "-")
     .replace(/-\d{4}-\d{2}-\d{2}$/, "")
     .replace(/-\d{8}$/, "");

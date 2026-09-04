@@ -50,7 +50,7 @@ async function processItems(
 
   for (const { item, notify } of candidates) {
     const event = toEvent(sourceName, item, now);
-    const key = canonicalKey(event.source, event.externalId);
+    const key = canonicalKey(event.source, event.externalId, item.vendor);
     const wonCanonical = await store.setCanonicalNX(key, event.id);
     if (!wonCanonical) {
       const winnerId = await store.getCanonical(key);

@@ -5,7 +5,44 @@ interface ModelsDevModel {
   id?: string;
   name?: string;
   url?: string;
+  family?: string;
   release_date?: string;
+}
+
+const FAMILY_VENDOR: [RegExp, string][] = [
+  [/^(gemini|gemma)/, "google"],
+  [/^(gpt|chatgpt|o\d)/, "openai"],
+  [/^claude/, "anthropic"],
+  [/^(glm|chatglm)/, "zhipu"],
+  [/^kimi/, "moonshot"],
+  [/^(qwen|qwq)/, "alibaba"],
+  [/^deepseek/, "deepseek"],
+  [/^(llama|muse|codellama)/, "meta"],
+  [/^(mistral|magistral|pixtral|codestral|ministral)/, "mistralai"],
+  [/^grok/, "x-ai"],
+  [/^granite/, "ibm-granite"],
+  [/^mercury/, "inception"],
+  [/^(ling|bailing)/, "inclusionai"],
+  [/^(hunyuan|hy[-\d])/, "tencent"],
+  [/^(doubao|seed)/, "bytedance"],
+  [/^minimax|^abab/, "minimax"],
+  [/^step/, "stepfun"],
+  [/^command/, "cohere"],
+  [/^(nova|titan)/, "amazon"],
+  [/^phi/, "microsoft"],
+  [/^nemotron/, "nvidia"],
+  [/^(ernie|wenxin)/, "baidu"],
+];
+
+function inferVendor(family: string | undefined, modelKey: string): string | undefined {
+  for (const probe of [family, modelKey]) {
+    if (!probe) continue;
+    const p = probe.toLowerCase().split("/").pop()!.split(".").pop()!;
+    for (const [re, vendor] of FAMILY_VENDOR) {
+      if (re.test(p)) return vendor;
+    }
+  }
+  return undefined;
 }
 
 interface ModelsDevProvider {
@@ -25,6 +62,7 @@ export const modelsdev: SourceAdapter = {
       for (const [modelKey, model] of Object.entries(models)) {
         items.push({
           source: `models.dev/${providerKey}`,
+          vendor: inferVendor(model.family, modelKey),
           externalId: `${providerKey}/${modelKey}`,
           title: model.name || modelKey,
           provider: providerKey,

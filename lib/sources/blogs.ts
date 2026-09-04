@@ -7,8 +7,7 @@ const FEEDS = [
   { provider: "deepmind", url: "https://deepmind.google/blog/rss.xml" },
 ];
 
-const KEYWORD_RE =
-  /model|gpt|gemini|claude|release|introducing|launch|frontier/i;
+const KEYWORD_RE = /introduc|announc|unveil|launching|now available/i;
 
 const parser = new XMLParser({ ignoreAttributes: true });
 
@@ -45,7 +44,7 @@ export const blogs: SourceAdapter = {
             .replace(/\s+/g, " ")
             .trim()
             .slice(0, 300);
-          if (!KEYWORD_RE.test(title) && !KEYWORD_RE.test(summary)) continue;
+          if (!KEYWORD_RE.test(title)) continue;
           items.push({
             externalId: link,
             title,
