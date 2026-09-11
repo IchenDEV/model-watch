@@ -43,6 +43,13 @@ const VENDOR_ALIASES: Record<string, string> = {
 // strip leading known vendor/region prefixes, keeping version dots intact.
 export const BEDROCK_PREFIXES = new Set([
   "us",
+  "eu",
+  "jp",
+  "ap",
+  "sa",
+  "ca",
+  "au",
+  "global",
   "anthropic",
   "amazon",
   "ai21",
@@ -85,7 +92,7 @@ export function canonicalKey(
   name = name
     .toLowerCase()
     .replace(/@.*$/, "") // region 后缀：gemini-3.7-flash@eu
-    .replace(/:(batch|free)$/, "") // openrouter 端点变体：claude-fable-5.1:batch
+    .replace(/:(batch|free|thinking)$/, "") // openrouter 端点变体：claude-fable-5.1:batch
     .replace(/_/g, "-")
     .replace(/-\d{4}-\d{2}-\d{2}$/, "")
     .replace(/-\d{8}$/, "");
