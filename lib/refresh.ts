@@ -57,14 +57,18 @@ async function processItems(
       const winnerId = await store.getCanonical(key);
       if (winnerId) {
         const existing = await store.getEvent(winnerId);
-        if (existing && !existing.sources.includes(event.source)) {
-          await store.updateEventSources(winnerId, [
-            ...existing.sources,
-            event.source,
-          ]);
+        if (existing) {
+          if (!existing.sources.includes(event.source)) {
+            await store.updateEventSources(winnerId, [
+              ...existing.sources,
+              event.source,
+            ]);
+          }
+          continue;
         }
+        // 赢家事件已被清理，让位给当前事件
+        await store.setCanonical(key, event.id);
       }
-      continue;
     }
     const added = await store.addEventNX(event);
     if (!added) continue;

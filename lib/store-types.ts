@@ -8,6 +8,7 @@ export interface Store {
   updateEventSources(id: string, sources: string[]): Promise<void>;
   listEvents(limit: number, before?: number): Promise<ModelEvent[]>;
   setCanonicalNX(canonicalKey: string, eventId: string): Promise<boolean>;
+  setCanonical(canonicalKey: string, eventId: string): Promise<void>;
   getCanonical(canonicalKey: string): Promise<string | null>;
   pruneEvents(olderThanMs: number): Promise<void>;
 }

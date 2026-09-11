@@ -75,9 +75,10 @@ class FileStore implements Store {
 
   async listEvents(limit: number, before?: number): Promise<ModelEvent[]> {
     const d = await this.load();
+    const sortKey = (e: ModelEvent) => e.publishedAt ?? e.detectedAt;
     return Object.values(d.events)
-      .filter((e) => before === undefined || e.detectedAt < before)
-      .sort((a, b) => b.detectedAt - a.detectedAt)
+      .filter((e) => before === undefined || sortKey(e) < before)
+      .sort((a, b) => sortKey(b) - sortKey(a))
       .slice(0, limit);
   }
 
@@ -87,6 +88,12 @@ class FileStore implements Store {
     d.canonical[canonicalKey] = eventId;
     await this.save();
     return true;
+  }
+
+  async setCanonical(canonicalKey: string, eventId: string): Promise<void> {
+    const d = await this.load();
+    d.canonical[canonicalKey] = eventId;
+    await this.save();
   }
 
   async getCanonical(canonicalKey: string): Promise<string | null> {
@@ -138,12 +145,18 @@ class RedisStore implements Store {
 
   async addEventNX(event: ModelEvent): Promise<boolean> {
     const redis = await this.client();
+    // 展示排序按发布时间；events_detected 按检测时间，供 90 天清理用
     const added = await redis.zadd(
       "events",
       { nx: true },
-      { score: event.detectedAt, member: event.id }
+      { score: event.publishedAt ?? event.detectedAt, member: event.id }
     );
     if (added !== 1) return false;
+    await redis.zadd(
+      "events_detected",
+      { nx: true },
+      { score: event.detectedAt, member: event.id }
+    );
     await redis.hset(`event:${event.id}`, serializeEvent(event));
     return true;
   }
@@ -187,6 +200,11 @@ class RedisStore implements Store {
     return res === "OK";
   }
 
+  async setCanonical(canonicalKey: string, eventId: string): Promise<void> {
+    const redis = await this.client();
+    await redis.set(`canonical:${canonicalKey}`, eventId);
+  }
+
   async getCanonical(canonicalKey: string): Promise<string | null> {
     const redis = await this.client();
     return redis.get<string>(`canonical:${canonicalKey}`);
@@ -195,13 +213,14 @@ class RedisStore implements Store {
   async pruneEvents(olderThanMs: number): Promise<void> {
     const redis = await this.client();
     const cutoff = Date.now() - olderThanMs;
-    const ids = await redis.zrange<string[]>("events", "-inf", cutoff, {
+    const ids = await redis.zrange<string[]>("events_detected", "-inf", cutoff, {
       byScore: true,
     });
     if (!ids || ids.length === 0) return;
     const pipe = redis.pipeline();
     for (const id of ids) {
       pipe.zrem("events", id);
+      pipe.zrem("events_detected", id);
       pipe.del(`event:${id}`);
     }
     await pipe.exec();
