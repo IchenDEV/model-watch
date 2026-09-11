@@ -40,8 +40,8 @@ const VENDOR_ALIASES: Record<string, string> = {
 };
 
 // models.dev bedrock-style keys: "us.anthropic.claude-3-5-sonnet-..." —
-// take the last "." segment when the first segment looks like a vendor prefix.
-const BEDROCK_PREFIXES = new Set([
+// strip leading known vendor/region prefixes, keeping version dots intact.
+export const BEDROCK_PREFIXES = new Set([
   "us",
   "anthropic",
   "amazon",
@@ -57,6 +57,12 @@ const BEDROCK_PREFIXES = new Set([
   "luma",
   "twelvelabs",
 ]);
+
+export function stripBedrockPrefixes(name: string): string {
+  const parts = name.split(".");
+  while (parts.length > 1 && BEDROCK_PREFIXES.has(parts[0])) parts.shift();
+  return parts.join(".");
+}
 
 export function canonicalKey(
   source: string,
@@ -74,10 +80,7 @@ export function canonicalKey(
 
   let name = segments[segments.length - 1] || "";
   if (source.startsWith("models.dev") && name.includes(".")) {
-    const first = name.split(".")[0].toLowerCase();
-    if (BEDROCK_PREFIXES.has(first)) {
-      name = name.split(".").pop()!;
-    }
+    name = stripBedrockPrefixes(name.toLowerCase());
   }
   name = name
     .toLowerCase()

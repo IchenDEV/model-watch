@@ -1,5 +1,6 @@
 import type { SourceAdapter, SourceItem } from "../types";
 import { fetchWithTimeout } from "../fetch";
+import { stripBedrockPrefixes } from "../dedupe";
 
 interface ModelsDevModel {
   id?: string;
@@ -37,7 +38,7 @@ const FAMILY_VENDOR: [RegExp, string][] = [
 function inferVendor(family: string | undefined, modelKey: string): string | undefined {
   for (const probe of [family, modelKey]) {
     if (!probe) continue;
-    const p = probe.toLowerCase().split("/").pop()!.split(".").pop()!;
+    const p = stripBedrockPrefixes(probe.toLowerCase().split("/").pop()!);
     for (const [re, vendor] of FAMILY_VENDOR) {
       if (re.test(p)) return vendor;
     }
