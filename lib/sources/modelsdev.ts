@@ -33,6 +33,7 @@ const FAMILY_VENDOR: [RegExp, string][] = [
   [/^phi/, "microsoft"],
   [/^nemotron/, "nvidia"],
   [/^(ernie|wenxin)/, "baidu"],
+  [/^fugu/, "sakana"],
 ];
 
 function inferVendor(family: string | undefined, modelKey: string): string | undefined {
