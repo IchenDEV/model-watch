@@ -108,6 +108,7 @@ const GATEWAYS = new Set([
   "empiriolabs",
   "vivgrid",
   "stealth",
+  "consensusprotocol",
   "fireworks",
   "fireworks-ai",
 ]);

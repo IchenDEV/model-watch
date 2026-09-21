@@ -16,7 +16,7 @@ import { notifyFeishu } from "./notify";
 const BOOTSTRAP_COUNT = 20;
 const PRUNE_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 const RECONCILE_EVERY_MS = 12 * 60 * 60 * 1000;
-const RECONCILE_VERSION = "2";
+const RECONCILE_VERSION = "3";
 
 export interface SourceResult {
   fetched: number;
@@ -224,6 +224,43 @@ async function reconcileIfDue(
   return removed;
 }
 
+function listingRank(event: ModelEvent, targetKey: string): number {
+  const id = identify(event.source, event.externalId);
+  if (id.key === targetKey && id.origin) return 3;
+  if (id.key === targetKey) return 2;
+  if (id.origin) return 1;
+  return 0;
+}
+
+const REDIRECT_SUMMARY = /always redirects to the latest/i;
+
+function preferSummary(
+  current: string | undefined,
+  currentRank: number,
+  incoming: string | undefined,
+  incomingRank: number
+): { summary: string | undefined; rank: number } {
+  const kept = current?.trim();
+  const next = incoming?.trim();
+  if (!next) return { summary: kept, rank: currentRank };
+  if (!kept) return { summary: next, rank: incomingRank };
+  const keptRedirect = REDIRECT_SUMMARY.test(kept);
+  const nextRedirect = REDIRECT_SUMMARY.test(next);
+  if (keptRedirect !== nextRedirect) {
+    return nextRedirect
+      ? { summary: kept, rank: currentRank }
+      : { summary: next, rank: incomingRank };
+  }
+  if (incomingRank !== currentRank) {
+    return incomingRank > currentRank
+      ? { summary: next, rank: incomingRank }
+      : { summary: kept, rank: currentRank };
+  }
+  return next.length > kept.length
+    ? { summary: next, rank: incomingRank }
+    : { summary: kept, rank: currentRank };
+}
+
 async function reconcileEvents(
   store: Store,
   catalog: Map<string, PublishedMark>
@@ -261,17 +298,23 @@ async function reconcileEvents(
     }
 
     const sources = new Set<string>();
-    let summary = winner.summary;
+    let summary: string | undefined;
+    let summaryRank = -1;
     let url = winner.url;
     let title = winner.title;
     let provider = winner.provider;
+    let listing = -1;
     for (const other of group) {
       for (const source of other.sources) sources.add(source);
-      if ((other.summary?.length ?? 0) > (summary?.length ?? 0)) summary = other.summary;
-      if (identify(other.source, other.externalId).origin && other.url) {
-        url = other.url;
-        title = other.title || title;
-        provider = other.provider || provider;
+      const rank = listingRank(other, key);
+      const picked = preferSummary(summary, summaryRank, other.summary, rank);
+      summary = picked.summary;
+      summaryRank = picked.rank;
+      if (rank > listing && other.title) {
+        listing = rank;
+        title = other.title;
+        if (other.url) url = other.url;
+        if (other.provider) provider = other.provider;
       }
     }
     const sourceList = [...sources];
@@ -281,7 +324,7 @@ async function reconcileEvents(
       title,
       provider,
       url,
-      summary,
+      summary: summary ?? "",
       sources: sourceList,
       publishedAt: mark.at,
       publishedAtPrecision: mark.at == null ? undefined : mark.precision,

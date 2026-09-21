@@ -87,6 +87,17 @@ const jevGateway = identify("models.dev/vivgrid", "vivgrid/jev");
 const jevLatest = identify("models.dev/typesafe", "typesafe/jev-latest");
 assert.equal(jev.key, "typesafe:jev");
 assert.equal(jevGateway.key, "model:jev");
+const qwenBase = identify("models.dev/ovhcloud", "ovhcloud/qwen3.8-27b", "alibaba");
+const qwenReseller = identify(
+  "models.dev/llmgateway-providers",
+  "llmgateway-providers/consensusprotocol/qwen3.8-27b"
+);
+assert.equal(qwenBase.key, "alibaba:qwen3.8-27b");
+assert.equal(qwenReseller.key, "consensusprotocol:qwen3.8-27b");
+const qwenCollapsed = collapseKeys([qwenBase.key, qwenReseller.key]);
+assert.equal(qwenCollapsed.get(qwenBase.key), "alibaba:qwen3.8-27b");
+assert.equal(qwenCollapsed.get(qwenReseller.key), "alibaba:qwen3.8-27b");
+
 const jevKeys = collapseKeys([jev.key, jevGateway.key, jevLatest.key]);
 assert.equal(jevKeys.get(jev.key), "typesafe:jev");
 assert.equal(jevKeys.get(jevGateway.key), "typesafe:jev");
