@@ -1,8 +1,13 @@
+export type TimePrecision = "day" | "instant";
+
 export function displayName(e: {
   canonical?: string;
   externalId: string;
 }): string {
-  return e.canonical ? e.canonical.replace(/^([^:]+):/, "$1/") : e.externalId;
+  if (!e.canonical) return e.externalId;
+  const idx = e.canonical.indexOf(":");
+  if (idx < 0) return e.canonical;
+  return `${e.canonical.slice(0, idx)}/${e.canonical.slice(idx + 1)}`;
 }
 
 export interface ModelEvent {
@@ -18,6 +23,9 @@ export interface ModelEvent {
   sources: string[];
   detectedAt: number;
   publishedAt?: number;
+  publishedAtPrecision?: TimePrecision;
+  // True when publishedAt came from the maker's own catalog, not a reseller.
+  publishedOrigin?: boolean;
 }
 
 export interface SourceItem {
@@ -30,6 +38,7 @@ export interface SourceItem {
   summary: string;
   tags: string[];
   publishedAt?: number;
+  publishedAtPrecision?: TimePrecision;
 }
 
 export interface SourceAdapter {

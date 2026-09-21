@@ -54,6 +54,7 @@ export const huggingface: SourceAdapter = {
         summary: "",
         tags: (m.tags ?? []).slice(0, 8),
         publishedAt: m.createdAt ? Date.parse(m.createdAt) || undefined : undefined,
+        publishedAtPrecision: m.createdAt ? "instant" : undefined,
       }));
   },
 };

@@ -21,6 +21,7 @@ export const openrouter: SourceAdapter = {
       summary: (m.description || "").slice(0, 300),
       tags: [],
       publishedAt: m.created ? m.created * 1000 : undefined,
+      publishedAtPrecision: m.created ? "instant" : undefined,
     }));
   },
 };

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runRefresh } from "@/lib/refresh";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
 async function handle(request: NextRequest) {

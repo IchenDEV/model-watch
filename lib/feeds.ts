@@ -1,3 +1,4 @@
+import { releasedLabel, seenLabel } from "./time";
 import { displayName, type ModelEvent } from "./types";
 
 export function escapeXml(s: string): string {
@@ -23,7 +24,7 @@ export function renderRss(events: ModelEvent[]): string {
       <link>${escapeXml(e.url)}</link>
       <guid isPermaLink="false">${escapeXml(e.id)}</guid>
       <pubDate>${date}</pubDate>
-      <description>${escapeXml(e.summary || `${e.title} (${e.provider})`)}</description>
+      <description>${escapeXml(`${releasedLabel(e)}. ${seenLabel(e.detectedAt)}. ${e.summary || `${e.title} (${e.provider})`}`)}</description>
       <category>${escapeXml(e.provider)}</category>
     </item>`;
     })
@@ -54,7 +55,7 @@ export function renderAtom(events: ModelEvent[]): string {
     <link href="${escapeXml(e.url)}"/>
     <id>urn:model-watch:${escapeXml(e.id)}</id>
     <updated>${date}</updated>
-    <summary>${escapeXml(e.summary || `${e.title} (${e.provider})`)}</summary>
+    <summary>${escapeXml(`${releasedLabel(e)}. ${seenLabel(e.detectedAt)}. ${e.summary || `${e.title} (${e.provider})`}`)}</summary>
     <author><name>${escapeXml(e.provider)}</name></author>
   </entry>`;
     })

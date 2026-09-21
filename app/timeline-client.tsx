@@ -1,19 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { releasedLabel, seenLabel } from "@/lib/time";
 import { displayName, type ModelEvent } from "@/lib/types";
-
-function relativeTime(ts: number): string {
-  const diff = Date.now() - ts;
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(ts).toLocaleDateString();
-}
 
 export default function TimelineClient({
   events,
@@ -106,8 +95,7 @@ export default function TimelineClient({
               ))}
             </div>
             <div className="mt-1 text-sm text-zinc-500">
-              {e.title} · {e.provider} ·{" "}
-              {relativeTime(e.publishedAt ?? e.detectedAt)}
+              {e.title} · {e.provider} · {releasedLabel(e)} · {seenLabel(e.detectedAt)}
             </div>
             {e.summary && (
               <p className="mt-2 max-w-3xl text-sm text-zinc-400">

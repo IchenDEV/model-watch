@@ -2,11 +2,13 @@ import { promises as fs } from "fs";
 import path from "path";
 import type { ModelEvent } from "./types";
 import type { Store } from "./store-types";
+import { compareEvents } from "./time";
 
 interface FileData {
   snapshots: Record<string, string[]>;
   events: Record<string, ModelEvent>;
   canonical: Record<string, string>;
+  meta?: Record<string, string>;
 }
 
 const DATA_FILE = path.join(process.cwd(), ".data", "store.json");
@@ -24,7 +26,7 @@ class FileStore implements Store {
       this.data = JSON.parse(await fs.readFile(DATA_FILE, "utf8")) as FileData;
     } catch {
       if (!this.data) {
-        this.data = { snapshots: {}, events: {}, canonical: {} };
+        this.data = { snapshots: {}, events: {}, canonical: {}, meta: {} };
       }
     }
     return this.data!;
@@ -73,12 +75,33 @@ class FileStore implements Store {
     await this.save();
   }
 
+  async writeEvents(events: ModelEvent[]): Promise<void> {
+    if (events.length === 0) return;
+    const d = await this.load();
+    for (const event of events) {
+      if (!d.events[event.id]) continue;
+      d.events[event.id] = event;
+    }
+    await this.save();
+  }
+
+  async deleteEvents(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const d = await this.load();
+    const drop = new Set(ids);
+    for (const id of ids) delete d.events[id];
+    for (const [key, eventId] of Object.entries(d.canonical)) {
+      if (drop.has(eventId)) delete d.canonical[key];
+    }
+    await this.save();
+  }
+
   async listEvents(limit: number, before?: number): Promise<ModelEvent[]> {
     const d = await this.load();
     const sortKey = (e: ModelEvent) => e.publishedAt ?? e.detectedAt;
     return Object.values(d.events)
       .filter((e) => before === undefined || sortKey(e) < before)
-      .sort((a, b) => sortKey(b) - sortKey(a))
+      .sort(compareEvents)
       .slice(0, limit);
   }
 
@@ -96,9 +119,28 @@ class FileStore implements Store {
     await this.save();
   }
 
+  async setCanonicalMany(entries: [string, string][]): Promise<void> {
+    if (entries.length === 0) return;
+    const d = await this.load();
+    for (const [key, eventId] of entries) d.canonical[key] = eventId;
+    await this.save();
+  }
+
   async getCanonical(canonicalKey: string): Promise<string | null> {
     const d = await this.load();
     return d.canonical[canonicalKey] ?? null;
+  }
+
+  async getMeta(key: string): Promise<string | null> {
+    const d = await this.load();
+    return d.meta?.[key] ?? null;
+  }
+
+  async setMeta(key: string, value: string): Promise<void> {
+    const d = await this.load();
+    d.meta ??= {};
+    d.meta[key] = value;
+    await this.save();
   }
 
   async pruneEvents(olderThanMs: number): Promise<void> {
@@ -173,6 +215,34 @@ class RedisStore implements Store {
     await redis.hset(`event:${id}`, { sources: JSON.stringify(sources) });
   }
 
+  async writeEvents(events: ModelEvent[]): Promise<void> {
+    const redis = await this.client();
+    for (let i = 0; i < events.length; i += 100) {
+      const pipe = redis.pipeline();
+      for (const event of events.slice(i, i + 100)) {
+        pipe.hset(`event:${event.id}`, serializeEvent(event));
+        pipe.zadd("events", {
+          score: event.publishedAt ?? event.detectedAt,
+          member: event.id,
+        });
+      }
+      await pipe.exec();
+    }
+  }
+
+  async deleteEvents(ids: string[]): Promise<void> {
+    const redis = await this.client();
+    for (let i = 0; i < ids.length; i += 100) {
+      const pipe = redis.pipeline();
+      for (const id of ids.slice(i, i + 100)) {
+        pipe.zrem("events", id);
+        pipe.zrem("events_detected", id);
+        pipe.del(`event:${id}`);
+      }
+      await pipe.exec();
+    }
+  }
+
   async listEvents(limit: number, before?: number): Promise<ModelEvent[]> {
     const redis = await this.client();
     const max: "+inf" | `(${number}` =
@@ -189,7 +259,8 @@ class RedisStore implements Store {
     const rows = (await pipe.exec()) as (Record<string, unknown> | null)[];
     return rows
       .filter((r): r is Record<string, unknown> => !!r && !!r.id)
-      .map(deserializeEvent);
+      .map(deserializeEvent)
+      .sort(compareEvents);
   }
 
   async setCanonicalNX(canonicalKey: string, eventId: string): Promise<boolean> {
@@ -205,9 +276,30 @@ class RedisStore implements Store {
     await redis.set(`canonical:${canonicalKey}`, eventId);
   }
 
+  async setCanonicalMany(entries: [string, string][]): Promise<void> {
+    const redis = await this.client();
+    for (let i = 0; i < entries.length; i += 200) {
+      const pipe = redis.pipeline();
+      for (const [key, eventId] of entries.slice(i, i + 200)) {
+        pipe.set(`canonical:${key}`, eventId);
+      }
+      await pipe.exec();
+    }
+  }
+
   async getCanonical(canonicalKey: string): Promise<string | null> {
     const redis = await this.client();
     return redis.get<string>(`canonical:${canonicalKey}`);
+  }
+
+  async getMeta(key: string): Promise<string | null> {
+    const redis = await this.client();
+    return redis.get<string>(`meta:${key}`);
+  }
+
+  async setMeta(key: string, value: string): Promise<void> {
+    const redis = await this.client();
+    await redis.set(`meta:${key}`, value);
   }
 
   async pruneEvents(olderThanMs: number): Promise<void> {
@@ -241,6 +333,8 @@ function serializeEvent(e: ModelEvent): Record<string, string> {
     sources: JSON.stringify(e.sources),
     detectedAt: String(e.detectedAt),
     publishedAt: e.publishedAt === undefined ? "" : String(e.publishedAt),
+    publishedAtPrecision: e.publishedAtPrecision ?? "",
+    publishedOrigin: e.publishedOrigin ? "1" : "0",
   };
 }
 
@@ -267,6 +361,15 @@ function deserializeEvent(r: Record<string, unknown>): ModelEvent {
     sources: (jsonField(r.sources) as string[]) ?? [],
     detectedAt: Number(r.detectedAt),
     publishedAt: r.publishedAt ? Number(r.publishedAt) : undefined,
+    publishedAtPrecision:
+      r.publishedAtPrecision === "day" || r.publishedAtPrecision === "instant"
+        ? r.publishedAtPrecision
+        : undefined,
+    publishedOrigin:
+      r.publishedOrigin === "1" ||
+      r.publishedOrigin === "true" ||
+      r.publishedOrigin === 1 ||
+      r.publishedOrigin === true,
   };
 }
 

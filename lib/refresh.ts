@@ -1,12 +1,20 @@
 import type { ModelEvent, SourceItem } from "./types";
+import type { Store } from "./store-types";
 import { getStore } from "./store";
 import { getSources } from "./sources";
 import { getDirectProviders, fetchDirectProvider } from "./sources/direct";
-import { canonicalKey, toEvent } from "./dedupe";
+import {
+  betterPublished,
+  identify,
+  precisionOf,
+  toEvent,
+  type PublishedMark,
+} from "./dedupe";
 import { notifyFeishu } from "./notify";
 
 const BOOTSTRAP_COUNT = 20;
 const PRUNE_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+const RECONCILE_EVERY_MS = 12 * 60 * 60 * 1000;
 
 export interface SourceResult {
   fetched: number;
@@ -50,24 +58,45 @@ async function processItems(
 
   for (const { item, notify } of candidates) {
     const event = toEvent(sourceName, item, now);
-    const key = canonicalKey(event.source, event.externalId, item.vendor);
-    event.canonical = key;
-    const wonCanonical = await store.setCanonicalNX(key, event.id);
+    const idn = identify(event.source, event.externalId, item.vendor);
+    event.canonical = idn.key;
+    event.publishedAtPrecision = precisionOf(
+      event.publishedAt,
+      item.publishedAtPrecision
+    );
+    event.publishedOrigin = idn.origin;
+    const wonCanonical = await store.setCanonicalNX(idn.key, event.id);
     if (!wonCanonical) {
-      const winnerId = await store.getCanonical(key);
+      const winnerId = await store.getCanonical(idn.key);
       if (winnerId) {
         const existing = await store.getEvent(winnerId);
         if (existing) {
-          if (!existing.sources.includes(event.source)) {
-            await store.updateEventSources(winnerId, [
-              ...existing.sources,
-              event.source,
-            ]);
+          const next = betterPublished(markOf(existing), markOf(event));
+          const sources = existing.sources.includes(event.source)
+            ? existing.sources
+            : [...existing.sources, event.source];
+          const changed =
+            next.at !== existing.publishedAt ||
+            next.precision !== existing.publishedAtPrecision ||
+            next.origin !== existing.publishedOrigin ||
+            sources.length !== existing.sources.length;
+          if (changed) {
+            const updated: ModelEvent = {
+              ...existing,
+              canonical: idn.key,
+              publishedAt: next.at,
+              publishedAtPrecision: next.at == null ? undefined : next.precision,
+              publishedOrigin: next.origin,
+              sources,
+            };
+            await store.writeEvents([updated]);
+            const queued = toNotify.find((entry) => entry.id === existing.id);
+            if (queued) Object.assign(queued, updated);
           }
           continue;
         }
         // 赢家事件已被清理，让位给当前事件
-        await store.setCanonical(key, event.id);
+        await store.setCanonical(idn.key, event.id);
       }
     }
     const added = await store.addEventNX(event);
@@ -126,8 +155,33 @@ export async function runRefresh(): Promise<RefreshResult> {
     }
   }
 
-  if (notifyQueue.length > 0) {
-    await notifyFeishu(notifyQueue);
+  const catalog = new Map<string, PublishedMark>();
+  for (let i = 0; i < jobs.length; i++) {
+    const outcome = settled[i];
+    if (outcome.status !== "fulfilled") continue;
+    for (const item of outcome.value.items) {
+      const source = item.source ?? jobs[i].name;
+      const idn = identify(source, item.externalId, item.vendor);
+      const mark: PublishedMark = {
+        at: item.publishedAt,
+        precision: precisionOf(item.publishedAt, item.publishedAtPrecision),
+        origin: idn.origin,
+      };
+      const prev = catalog.get(idn.key);
+      catalog.set(idn.key, prev ? betterPublished(prev, mark) : mark);
+    }
+  }
+
+  let removed = new Set<string>();
+  try {
+    removed = await reconcileIfDue(getStore(), catalog);
+  } catch (err) {
+    console.error("reconcile failed:", err);
+  }
+
+  const toSend = notifyQueue.filter((event) => !removed.has(event.id));
+  if (toSend.length > 0) {
+    await notifyFeishu(toSend);
   }
 
   try {
@@ -137,5 +191,102 @@ export async function runRefresh(): Promise<RefreshResult> {
   }
 
   const ok = Object.values(sources).some((s) => s.errors.length === 0);
-  return { ok, sources, notified: notifyQueue.length };
+  return { ok, sources, notified: toSend.length };
+}
+
+function markOf(event: ModelEvent): PublishedMark {
+  const origin = event.publishedAtPrecision
+    ? Boolean(event.publishedOrigin)
+    : identify(event.source, event.externalId).origin;
+  return {
+    at: event.publishedAt,
+    precision: precisionOf(event.publishedAt, event.publishedAtPrecision),
+    origin,
+  };
+}
+
+async function reconcileIfDue(
+  store: Store,
+  catalog: Map<string, PublishedMark>
+): Promise<Set<string>> {
+  const last = await store.getMeta("catalog-reconcile-at");
+  const due =
+    !last || Date.now() - Number(last) > RECONCILE_EVERY_MS;
+  if (!due) return new Set();
+  const removed = await reconcileEvents(store, catalog);
+  await store.setMeta("catalog-reconcile-at", String(Date.now()));
+  return removed;
+}
+
+async function reconcileEvents(
+  store: Store,
+  catalog: Map<string, PublishedMark>
+): Promise<Set<string>> {
+  const events = await store.listEvents(10000);
+  const groups = new Map<string, ModelEvent[]>();
+  for (const event of events) {
+    const key = identify(event.source, event.externalId).key;
+    const list = groups.get(key) ?? [];
+    list.push(event);
+    groups.set(key, list);
+  }
+
+  const writes: ModelEvent[] = [];
+  const deletions: string[] = [];
+  const canonicals: [string, string][] = [];
+
+  for (const [key, group] of groups) {
+    group.sort((a, b) => a.detectedAt - b.detectedAt);
+    const winner = group[0];
+    let mark = markOf(winner);
+    const fromCatalog = catalog.get(key);
+    if (fromCatalog) mark = betterPublished(mark, fromCatalog);
+    for (const other of group.slice(1)) mark = betterPublished(mark, markOf(other));
+
+    const sources = new Set<string>();
+    let summary = winner.summary;
+    let url = winner.url;
+    let title = winner.title;
+    let provider = winner.provider;
+    for (const other of group) {
+      for (const source of other.sources) sources.add(source);
+      if ((other.summary?.length ?? 0) > (summary?.length ?? 0)) summary = other.summary;
+      if (identify(other.source, other.externalId).origin && other.url) {
+        url = other.url;
+        title = other.title || title;
+        provider = other.provider || provider;
+      }
+    }
+    const sourceList = [...sources];
+    const next: ModelEvent = {
+      ...winner,
+      canonical: key,
+      title,
+      provider,
+      url,
+      summary,
+      sources: sourceList,
+      publishedAt: mark.at,
+      publishedAtPrecision: mark.at == null ? undefined : mark.precision,
+      publishedOrigin: mark.origin,
+    };
+    const changed =
+      next.canonical !== winner.canonical ||
+      next.publishedAt !== winner.publishedAt ||
+      next.publishedAtPrecision !== winner.publishedAtPrecision ||
+      Boolean(next.publishedOrigin) !== Boolean(winner.publishedOrigin) ||
+      next.url !== winner.url ||
+      next.title !== winner.title ||
+      next.summary !== winner.summary ||
+      sourceList.length !== winner.sources.length ||
+      sourceList.some((source) => !winner.sources.includes(source));
+    if (changed) writes.push(next);
+    canonicals.push([key, winner.id]);
+    for (const other of group.slice(1)) deletions.push(other.id);
+  }
+
+  await store.writeEvents(writes);
+  await store.deleteEvents(deletions);
+  await store.setCanonicalMany(canonicals);
+  return new Set(deletions);
 }
