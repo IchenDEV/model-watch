@@ -96,10 +96,23 @@ const qwenReseller = identify(
   "llmgateway-providers/consensusprotocol/qwen3.8-27b"
 );
 assert.equal(qwenBase.key, "alibaba:qwen3.8-27b");
-assert.equal(qwenReseller.key, "consensusprotocol:qwen3.8-27b");
-const qwenCollapsed = collapseKeys([qwenBase.key, qwenReseller.key]);
+assert.equal(qwenReseller.key, "alibaba:qwen3.8-27b");
+const bailian = identify(
+  "models.dev/ofox",
+  "ofox/bailian/qwen3.8-27b",
+  "alibaba"
+);
+assert.equal(bailian.key, "alibaba:qwen3.8-27b");
+const qwenCollapsed = collapseKeys([
+  qwenBase.key,
+  "consensusprotocol:qwen3.8-27b",
+  "bailian:qwen3.8-27b",
+  "model:qwen3.8-27b",
+]);
 assert.equal(qwenCollapsed.get(qwenBase.key), "alibaba:qwen3.8-27b");
-assert.equal(qwenCollapsed.get(qwenReseller.key), "alibaba:qwen3.8-27b");
+assert.equal(qwenCollapsed.get("consensusprotocol:qwen3.8-27b"), "alibaba:qwen3.8-27b");
+assert.equal(qwenCollapsed.get("model:qwen3.8-27b"), "alibaba:qwen3.8-27b");
+assert.equal(qwenCollapsed.get("bailian:qwen3.8-27b"), "bailian:qwen3.8-27b");
 
 const jevKeys = collapseKeys([jev.key, jevGateway.key, jevLatest.key]);
 assert.equal(jevKeys.get(jev.key), "typesafe:jev");

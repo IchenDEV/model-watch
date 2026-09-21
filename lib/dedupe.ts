@@ -257,11 +257,16 @@ export function identify(
   const hinted = vendorHint ? aliasVendor(vendorHint) : "";
   const fromSlug = inferFamilyVendor(slug) ?? "";
   const hostVendor = aliasVendor(host || "unknown");
+  const orgIsKnownMaker =
+    Boolean(orgVendor) &&
+    (Object.values(VENDOR_ALIASES).includes(orgVendor) ||
+      inferFamilyVendor(org) != null);
+  const family = hinted || fromSlug;
+  // A gateway org like bailian or consensusprotocol is a storefront, not the maker.
   const vendor =
-    orgVendor ||
-    hinted ||
-    fromSlug ||
-    (GATEWAYS.has(hostVendor) ? "model" : hostVendor);
+    GATEWAYS.has(hostVendor) && family && !orgIsKnownMaker
+      ? family
+      : orgVendor || family || (GATEWAYS.has(hostVendor) ? "model" : hostVendor);
 
   return {
     key: `${vendor}:${slug}`,
@@ -318,9 +323,13 @@ export function collapseKeys(keys: string[]): Map<string, string> {
       looseTarget.set(loose, `model:${slug}`);
       for (const key of list) out.set(key, `model:${slug}`);
     } else {
+      const family = inferFamilyVendor(slug);
+      const preferred = family && real.includes(family) ? `${family}:${slug}` : "";
       for (const key of list) {
         const vendor = vendorOf(key);
-        out.set(key, isReseller(vendor) ? `model:${slugOf(key)}` : key);
+        if (!isReseller(vendor)) out.set(key, key);
+        else if (preferred) out.set(key, preferred);
+        else out.set(key, `model:${slugOf(key)}`);
       }
     }
   }
