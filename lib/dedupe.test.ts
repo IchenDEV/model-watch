@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { betterPublished, collapseKeys, identify } from "./dedupe";
+import { betterPublished, collapseKeys, identify, preferCanonical } from "./dedupe";
 
 const kilo = identify(
   "models.dev/kilo",
@@ -70,6 +70,9 @@ const pareto = identify(
   "kilo/unbiased/pareto"
 );
 assert.equal(pareto.key, "unbiased:pareto");
+assert.equal(preferCanonical("model:pareto", "unbiased:pareto"), "unbiased:pareto");
+assert.equal(preferCanonical("unbiased:pareto", "model:pareto"), "unbiased:pareto");
+
 const collapsed = collapseKeys([stealth.key, pareto.key]);
 assert.equal(collapsed.get("model:pareto"), "unbiased:pareto");
 assert.equal(collapsed.get("unbiased:pareto"), "unbiased:pareto");

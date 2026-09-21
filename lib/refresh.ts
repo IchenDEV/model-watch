@@ -8,6 +8,7 @@ import {
   collapseKeys,
   identify,
   precisionOf,
+  preferCanonical,
   toEvent,
   type PublishedMark,
 } from "./dedupe";
@@ -16,7 +17,7 @@ import { notifyFeishu } from "./notify";
 const BOOTSTRAP_COUNT = 20;
 const PRUNE_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 const RECONCILE_EVERY_MS = 12 * 60 * 60 * 1000;
-const RECONCILE_VERSION = "3";
+const RECONCILE_VERSION = "4";
 
 export interface SourceResult {
   fetched: number;
@@ -85,7 +86,7 @@ async function processItems(
           if (changed) {
             const updated: ModelEvent = {
               ...existing,
-              canonical: idn.key,
+              canonical: preferCanonical(existing.canonical, idn.key),
               publishedAt: next.at,
               publishedAtPrecision: next.at == null ? undefined : next.precision,
               publishedOrigin: next.origin,
@@ -273,7 +274,13 @@ async function reconcileEvents(
     list.push(event);
     initial.set(key, list);
   }
-  const collapsed = collapseKeys([...initial.keys()]);
+  const aliases = new Set<string>(catalog.keys());
+  for (const list of initial.values()) {
+    for (const event of list) {
+      if (event.canonical) aliases.add(event.canonical);
+    }
+  }
+  const collapsed = collapseKeys([...initial.keys(), ...aliases]);
   const groups = new Map<string, ModelEvent[]>();
   for (const [key, list] of initial) {
     const target = collapsed.get(key) ?? key;
@@ -342,6 +349,9 @@ async function reconcileEvents(
       sourceList.some((source) => !winner.sources.includes(source));
     if (changed) writes.push(next);
     canonicals.push([key, winner.id]);
+    for (const [sourceKey, mapped] of collapsed) {
+      if (mapped === key) canonicals.push([sourceKey, winner.id]);
+    }
     for (const other of group.slice(1)) deletions.push(other.id);
   }
 

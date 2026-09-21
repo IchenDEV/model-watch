@@ -283,6 +283,15 @@ function isReseller(vendor: string): boolean {
   return vendor === "model" || GATEWAYS.has(vendor);
 }
 
+export function preferCanonical(current: string, incoming: string): string {
+  if (!current) return incoming;
+  const currentReseller = isReseller(vendorOf(current));
+  const incomingReseller = isReseller(vendorOf(incoming));
+  if (currentReseller && !incomingReseller) return incoming;
+  if (!currentReseller && incomingReseller) return current;
+  return current;
+}
+
 // Fold gateway copies, dotted/dashed version spellings, and `-latest` aliases
 // onto one key. Two different makers with the same slug stay separate.
 export function collapseKeys(keys: string[]): Map<string, string> {
