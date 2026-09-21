@@ -5,6 +5,7 @@ import { getSources } from "./sources";
 import { getDirectProviders, fetchDirectProvider } from "./sources/direct";
 import {
   betterPublished,
+  collapseKeys,
   identify,
   precisionOf,
   toEvent,
@@ -15,6 +16,7 @@ import { notifyFeishu } from "./notify";
 const BOOTSTRAP_COUNT = 20;
 const PRUNE_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 const RECONCILE_EVERY_MS = 12 * 60 * 60 * 1000;
+const RECONCILE_VERSION = "2";
 
 export interface SourceResult {
   fetched: number;
@@ -209,11 +211,15 @@ async function reconcileIfDue(
   store: Store,
   catalog: Map<string, PublishedMark>
 ): Promise<Set<string>> {
+  const version = await store.getMeta("catalog-reconcile-version");
   const last = await store.getMeta("catalog-reconcile-at");
   const due =
-    !last || Date.now() - Number(last) > RECONCILE_EVERY_MS;
+    version !== RECONCILE_VERSION ||
+    !last ||
+    Date.now() - Number(last) > RECONCILE_EVERY_MS;
   if (!due) return new Set();
   const removed = await reconcileEvents(store, catalog);
+  await store.setMeta("catalog-reconcile-version", RECONCILE_VERSION);
   await store.setMeta("catalog-reconcile-at", String(Date.now()));
   return removed;
 }
@@ -223,12 +229,20 @@ async function reconcileEvents(
   catalog: Map<string, PublishedMark>
 ): Promise<Set<string>> {
   const events = await store.listEvents(10000);
-  const groups = new Map<string, ModelEvent[]>();
+  const initial = new Map<string, ModelEvent[]>();
   for (const event of events) {
     const key = identify(event.source, event.externalId).key;
-    const list = groups.get(key) ?? [];
+    const list = initial.get(key) ?? [];
     list.push(event);
-    groups.set(key, list);
+    initial.set(key, list);
+  }
+  const collapsed = collapseKeys([...initial.keys()]);
+  const groups = new Map<string, ModelEvent[]>();
+  for (const [key, list] of initial) {
+    const target = collapsed.get(key) ?? key;
+    const dest = groups.get(target) ?? [];
+    dest.push(...list);
+    groups.set(target, dest);
   }
 
   const writes: ModelEvent[] = [];
@@ -239,9 +253,12 @@ async function reconcileEvents(
     group.sort((a, b) => a.detectedAt - b.detectedAt);
     const winner = group[0];
     let mark = markOf(winner);
-    const fromCatalog = catalog.get(key);
-    if (fromCatalog) mark = betterPublished(mark, fromCatalog);
     for (const other of group.slice(1)) mark = betterPublished(mark, markOf(other));
+    for (const [sourceKey, mapped] of collapsed) {
+      if (mapped !== key) continue;
+      const fromCatalog = catalog.get(sourceKey);
+      if (fromCatalog) mark = betterPublished(mark, fromCatalog);
+    }
 
     const sources = new Set<string>();
     let summary = winner.summary;

@@ -7,7 +7,9 @@ export function displayName(e: {
   if (!e.canonical) return e.externalId;
   const idx = e.canonical.indexOf(":");
   if (idx < 0) return e.canonical;
-  return `${e.canonical.slice(0, idx)}/${e.canonical.slice(idx + 1)}`;
+  const vendor = e.canonical.slice(0, idx);
+  const slug = e.canonical.slice(idx + 1);
+  return vendor === "model" ? slug : `${vendor}/${slug}`;
 }
 
 export interface ModelEvent {

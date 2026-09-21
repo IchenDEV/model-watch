@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { betterPublished, identify } from "./dedupe";
+import { betterPublished, collapseKeys, identify } from "./dedupe";
 
 const kilo = identify(
   "models.dev/kilo",
@@ -59,6 +59,38 @@ const refined = betterPublished(
 assert.equal(refined.at, clock);
 assert.equal(refined.precision, "instant");
 assert.equal(refined.origin, true);
+
+const stealth = identify("models.dev/stealth", "stealth/union-alpha");
+const opencode = identify("models.dev/opencode", "opencode/union-alpha");
+assert.equal(stealth.key, "model:pareto");
+assert.equal(opencode.key, stealth.key);
+
+const pareto = identify(
+  "models.dev/kilo",
+  "kilo/unbiased/pareto"
+);
+assert.equal(pareto.key, "unbiased:pareto");
+const collapsed = collapseKeys([stealth.key, pareto.key]);
+assert.equal(collapsed.get("model:pareto"), "unbiased:pareto");
+assert.equal(collapsed.get("unbiased:pareto"), "unbiased:pareto");
+
+const dotted = identify("models.dev/alibaba", "alibaba/qwen3.8-omni-flash", "alibaba");
+const dashed = identify("models.dev/empiriolabs", "empiriolabs/qwen3-8-omni-flash", "alibaba");
+assert.equal(dotted.key, "alibaba:qwen3.8-omni-flash");
+assert.equal(dashed.key, "alibaba:qwen3-8-omni-flash");
+const spellings = collapseKeys([dotted.key, dashed.key]);
+assert.equal(spellings.get(dotted.key), "alibaba:qwen3.8-omni-flash");
+assert.equal(spellings.get(dashed.key), "alibaba:qwen3.8-omni-flash");
+
+const jev = identify("models.dev/typesafe", "typesafe/jev");
+const jevGateway = identify("models.dev/vivgrid", "vivgrid/jev");
+const jevLatest = identify("models.dev/typesafe", "typesafe/jev-latest");
+assert.equal(jev.key, "typesafe:jev");
+assert.equal(jevGateway.key, "model:jev");
+const jevKeys = collapseKeys([jev.key, jevGateway.key, jevLatest.key]);
+assert.equal(jevKeys.get(jev.key), "typesafe:jev");
+assert.equal(jevKeys.get(jevGateway.key), "typesafe:jev");
+assert.equal(jevKeys.get(jevLatest.key), "typesafe:jev");
 
 const kept = betterPublished(
   { at: august, precision: "day", origin: true },

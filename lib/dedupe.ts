@@ -56,6 +56,65 @@ const VENDOR_ALIASES: Record<string, string> = {
   writer: "writer",
   luma: "luma",
   twelvelabs: "twelvelabs",
+  "typesafe-ai": "typesafe",
+  "alibaba-cn": "alibaba",
+};
+
+// Hosts that resell someone else's model. They must not become the vendor.
+const GATEWAYS = new Set([
+  "openrouter",
+  "kilo",
+  "nano-gpt",
+  "vercel",
+  "requesty",
+  "cloudflare-ai-gateway",
+  "cloudflare",
+  "together",
+  "groq",
+  "deepinfra",
+  "azure",
+  "amazon-bedrock",
+  "google-vertex",
+  "github-copilot",
+  "opencode",
+  "opencode-go",
+  "llmgateway",
+  "llmgateway-providers",
+  "poe",
+  "abacus",
+  "302ai",
+  "aihubmix",
+  "anyapi",
+  "fastrouter",
+  "helicone",
+  "edenai",
+  "crossmodel",
+  "daoxe",
+  "frogbot",
+  "impossibl",
+  "jiekou",
+  "kenari",
+  "merge-gateway",
+  "ofox",
+  "opper",
+  "orcarouter",
+  "perplexity-agent",
+  "pioneer",
+  "qiniu-ai",
+  "venice",
+  "zenmux",
+  "oci",
+  "neon",
+  "empiriolabs",
+  "vivgrid",
+  "stealth",
+  "fireworks",
+  "fireworks-ai",
+]);
+
+// Stealth listings that were later revealed as an existing model.
+const SLUG_ALIASES: Record<string, string> = {
+  "union-alpha": "pareto",
 };
 
 const REGION_PREFIXES = new Set([
@@ -118,13 +177,17 @@ export function stripBedrockPrefixes(name: string): string {
 }
 
 function normalizeSlug(name: string): string {
-  const slug = stripBedrockPrefixes(name.toLowerCase().replace(/^~/, ""));
-  return slug
+  const slug = stripBedrockPrefixes(name.toLowerCase().replace(/^~/, ""))
     .replace(/@.*$/, "")
     .replace(/:(batch|free|thinking)$/, "")
     .replace(/_/g, "-")
     .replace(/-\d{4}-\d{2}-\d{2}$/, "")
     .replace(/-\d{8}$/, "");
+  return SLUG_ALIASES[slug] ?? slug;
+}
+
+export function looseSlug(slug: string): string {
+  return slug.replace(/(\d)\.(\d)/g, "$1-$2");
 }
 
 function peelVendorPrefix(slug: string): { vendor?: string; slug: string } {
@@ -192,7 +255,12 @@ export function identify(
   const orgVendor = aliasVendor(org || peeled.vendor || "");
   const hinted = vendorHint ? aliasVendor(vendorHint) : "";
   const fromSlug = inferFamilyVendor(slug) ?? "";
-  const vendor = orgVendor || hinted || fromSlug || aliasVendor(host || "unknown");
+  const hostVendor = aliasVendor(host || "unknown");
+  const vendor =
+    orgVendor ||
+    hinted ||
+    fromSlug ||
+    (GATEWAYS.has(hostVendor) ? "model" : hostVendor);
 
   return {
     key: `${vendor}:${slug}`,
@@ -200,6 +268,61 @@ export function identify(
     vendor,
     origin: isOrigin(source, host, vendor),
   };
+}
+
+function vendorOf(key: string): string {
+  return key.slice(0, key.indexOf(":"));
+}
+
+function slugOf(key: string): string {
+  return key.slice(key.indexOf(":") + 1);
+}
+
+function isReseller(vendor: string): boolean {
+  return vendor === "model" || GATEWAYS.has(vendor);
+}
+
+// Fold gateway copies, dotted/dashed version spellings, and `-latest` aliases
+// onto one key. Two different makers with the same slug stay separate.
+export function collapseKeys(keys: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const buckets = new Map<string, string[]>();
+  for (const key of keys) {
+    const loose = looseSlug(slugOf(key));
+    const list = buckets.get(loose) ?? [];
+    list.push(key);
+    buckets.set(loose, list);
+  }
+
+  const looseTarget = new Map<string, string>();
+  for (const [loose, list] of buckets) {
+    const real = [
+      ...new Set(list.map(vendorOf).filter((vendor) => !isReseller(vendor))),
+    ];
+    const dotted = list.map(slugOf).find((slug) => /\d\.\d/.test(slug));
+    const slug = dotted ?? slugOf(list[0]);
+    if (real.length === 1) {
+      looseTarget.set(loose, `${real[0]}:${slug}`);
+      for (const key of list) out.set(key, `${real[0]}:${slug}`);
+    } else if (real.length === 0) {
+      looseTarget.set(loose, `model:${slug}`);
+      for (const key of list) out.set(key, `model:${slug}`);
+    } else {
+      for (const key of list) {
+        const vendor = vendorOf(key);
+        out.set(key, isReseller(vendor) ? `model:${slugOf(key)}` : key);
+      }
+    }
+  }
+
+  for (const key of keys) {
+    const slug = slugOf(key);
+    if (!slug.endsWith("-latest")) continue;
+    const base = looseSlug(slug.slice(0, -"-latest".length));
+    const baseTarget = looseTarget.get(base);
+    if (baseTarget) out.set(key, baseTarget);
+  }
+  return out;
 }
 
 export function canonicalKey(
