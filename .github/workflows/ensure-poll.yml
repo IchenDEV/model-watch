@@ -1,0 +1,26 @@
+name: ensure-poll
+
+# Restart poll.yml when the self-chain has stopped. Hourly schedule is
+# best-effort; while poll.yml is healthy this job only checks and exits.
+
+on:
+  schedule:
+    - cron: "11 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  ensure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start poller if idle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          active=$(gh run list --workflow=poll.yml --limit 30 --json status --jq '[.[] | select(.status=="in_progress" or .status=="queued" or .status=="waiting" or .status=="requested" or .status=="pending")] | length')
+          echo "active pollers: $active"
+          if [ "$active" = "0" ]; then
+            gh workflow run poll.yml --ref main
+          fi

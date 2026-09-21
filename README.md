@@ -56,7 +56,12 @@ npm run dev
 
 ## 定时轮询（GitHub Actions）
 
-`.github/workflows/poll.yml` 每 15 分钟触发一次刷新：
+GitHub 的 `schedule` 只会尽力触发。这个仓库把 cron 写成每 15 分钟，实际常常隔 2–7 小时才跑一次，中间上架的模型会被漏掉。因此：
+
+- `.github/workflows/poll.yml` 拉起后自己循环约 5.5 小时，每 15 分钟 POST 一次 `/api/refresh`，结束前再触发下一次
+- `.github/workflows/ensure-poll.yml` 每小时检查一次，链条断了就重新启动
+
+配置：
 
 - 仓库 **Settings → Variables** 添加 `REFRESH_URL`（如 `https://your-app.vercel.app`）
 - 仓库 **Settings → Secrets** 添加 `CRON_SECRET`

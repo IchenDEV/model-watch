@@ -1,15 +1,54 @@
 name: poll
 
+# GitHub drops most `schedule` events. This repo's */15 cron actually ran
+# every 2–7 hours, so a model listed between runs (Grok 4.7) was missed.
+# Keep one long-lived loop and re-dispatch it before the job times out.
+# ensure-poll.yml restarts the chain if this run dies.
+
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: model-watch-poll
+  cancel-in-progress: false
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
-      - name: Trigger refresh
+      - name: Refresh every 15 minutes
         run: |
-          curl -fsSL -X POST "${{ vars.REFRESH_URL }}/api/refresh" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+          set -u
+          deadline=$(( $(date +%s) + 5 * 60 * 60 + 30 * 60 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            echo "refresh at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            if ! curl -fsS --retry 2 --retry-delay 5 --max-time 75 -X POST \
+              "${{ vars.REFRESH_URL }}/api/refresh" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"; then
+              echo "refresh request failed"
+            fi
+            echo
+            remaining=$(( deadline - $(date +%s) ))
+            if [ "$remaining" -le 900 ]; then
+              break
+            fi
+            sleep 900
+          done
+
+      - name: Chain the next poller
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          queued=$(gh run list --workflow=poll.yml --limit 30 --json status --jq '[.[] | select(.status=="queued" or .status=="waiting" or .status=="requested" or .status=="pending")] | length')
+          echo "queued pollers: $queued"
+          if [ "$queued" != "0" ]; then
+            echo "a poller is already queued"
+            exit 0
+          fi
+          gh workflow run poll.yml --ref main
