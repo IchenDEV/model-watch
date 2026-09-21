@@ -257,16 +257,11 @@ export function identify(
   const hinted = vendorHint ? aliasVendor(vendorHint) : "";
   const fromSlug = inferFamilyVendor(slug) ?? "";
   const hostVendor = aliasVendor(host || "unknown");
-  const orgIsKnownMaker =
-    Boolean(orgVendor) &&
-    (Object.values(VENDOR_ALIASES).includes(orgVendor) ||
-      inferFamilyVendor(org) != null);
-  const family = hinted || fromSlug;
-  // A gateway org like bailian or consensusprotocol is a storefront, not the maker.
   const vendor =
-    GATEWAYS.has(hostVendor) && family && !orgIsKnownMaker
-      ? family
-      : orgVendor || family || (GATEWAYS.has(hostVendor) ? "model" : hostVendor);
+    orgVendor ||
+    hinted ||
+    fromSlug ||
+    (GATEWAYS.has(hostVendor) ? "model" : hostVendor);
 
   return {
     key: `${vendor}:${slug}`,

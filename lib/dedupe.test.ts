@@ -96,13 +96,19 @@ const qwenReseller = identify(
   "llmgateway-providers/consensusprotocol/qwen3.8-27b"
 );
 assert.equal(qwenBase.key, "alibaba:qwen3.8-27b");
-assert.equal(qwenReseller.key, "alibaba:qwen3.8-27b");
+assert.equal(qwenReseller.key, "consensusprotocol:qwen3.8-27b");
 const bailian = identify(
   "models.dev/ofox",
   "ofox/bailian/qwen3.8-27b",
   "alibaba"
 );
-assert.equal(bailian.key, "alibaba:qwen3.8-27b");
+assert.equal(bailian.key, "bailian:qwen3.8-27b");
+const lab = identify(
+  "models.dev/nano-gpt",
+  "nano-gpt/slowburn/gemma4-31b-splituntied",
+  "google"
+);
+assert.equal(lab.key, "slowburn:gemma4-31b-splituntied");
 const qwenCollapsed = collapseKeys([
   qwenBase.key,
   "consensusprotocol:qwen3.8-27b",
