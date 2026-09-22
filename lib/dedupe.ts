@@ -156,6 +156,12 @@ const GATEWAYS = new Set([
 // Stealth listings that were later revealed as an existing model.
 const SLUG_ALIASES: Record<string, string> = {
   "union-alpha": "pareto",
+  "gpt-56-luna": "gpt-5.6-luna",
+  "gpt-56-sol": "gpt-5.6-sol",
+  "gpt-56-terra": "gpt-5.6-terra",
+  "gpt-56-luna-pro": "gpt-5.6-luna-pro",
+  "gpt-56-sol-pro": "gpt-5.6-sol-pro",
+  "gpt-56-terra-pro": "gpt-5.6-terra-pro",
 };
 
 const REGION_PREFIXES = new Set([
@@ -166,6 +172,7 @@ const REGION_PREFIXES = new Set([
   "sa",
   "ca",
   "au",
+  "in",
   "global",
 ]);
 
@@ -259,21 +266,36 @@ function normalizeSlug(name: string): string {
       .replace(/:(batch|free|thinking|official|online)$/i, "")
       .replace(/-(free|thinking|batch|official|online|contributor-free)$/i, "");
   }
+  slug = slug.replace(/^gpt-56-/i, "gpt-5.6-");
   return SLUG_ALIASES[slug] ?? slug;
 }
 
 export function looseSlug(slug: string): string {
   return slug
+    .replace(/^gpt-56-/i, "gpt-5-6-")
     .replace(/(\d)\.(\d)/g, "$1-$2")
     .replace(/(\d)p(\d)/g, "$1-$2");
 }
 
 function peelVendorPrefix(slug: string): { vendor?: string; slug: string } {
   const dot = slug.indexOf(".");
-  if (dot <= 0) return { slug };
-  const head = slug.slice(0, dot);
-  if (!(head in VENDOR_ALIASES)) return { slug };
-  return { vendor: VENDOR_ALIASES[head], slug: slug.slice(dot + 1) };
+  if (dot > 0) {
+    const head = slug.slice(0, dot);
+    if (head in VENDOR_ALIASES) {
+      return { vendor: VENDOR_ALIASES[head], slug: slug.slice(dot + 1) };
+    }
+  }
+  const dash = slug.indexOf("-");
+  if (dash > 0) {
+    const head = slug.slice(0, dash);
+    if (head in VENDOR_ALIASES) {
+      const rest = slug.slice(dash + 1);
+      if (inferFamilyVendor(rest)) {
+        return { vendor: VENDOR_ALIASES[head], slug: rest };
+      }
+    }
+  }
+  return { slug };
 }
 
 export interface Identity {
@@ -283,8 +305,9 @@ export interface Identity {
   origin: boolean;
 }
 
-function isOrigin(source: string, host: string, vendor: string): boolean {
-  if (source === "openrouter") return false;
+function isOrigin(source: string, host: string, vendor: string, slug: string): boolean {
+  if (slug.endsWith("-latest")) return false;
+  if (source === "openrouter" || source === "opencode") return false;
   if (source.startsWith("direct/")) return true;
   if (source === "huggingface" || source.startsWith("models.dev/")) {
     return aliasVendor(host) === vendor;
@@ -354,7 +377,7 @@ export function identify(
     key: `${vendor}:${slug}`,
     slug,
     vendor,
-    origin: isOrigin(source, host, vendor),
+    origin: isOrigin(source, host, vendor, slug),
   };
 }
 
@@ -416,12 +439,62 @@ export function collapseKeys(keys: string[]): Map<string, string> {
     }
   }
 
+  const GENERAL_PREFIXES = new Set([
+    "gpt",
+    "glm",
+    "claude",
+    "gemini",
+    "deepseek",
+    "qwen",
+    "mimo",
+    "kimi",
+    "meta",
+    "llama",
+    "mistral",
+  ]);
+
+  const targetsByVendor = new Map<string, { key: string; slug: string }[]>();
+  for (const targetKey of new Set(out.values())) {
+    const v = vendorOf(targetKey);
+    const s = slugOf(targetKey);
+    if (s.endsWith("-latest")) continue;
+    const list = targetsByVendor.get(v) || [];
+    list.push({ key: targetKey, slug: s });
+    targetsByVendor.set(v, list);
+  }
+
   for (const key of keys) {
     const slug = slugOf(key);
     if (!slug.endsWith("-latest")) continue;
+    const v = vendorOf(out.get(key) ?? key);
     const base = looseSlug(slug.slice(0, -"-latest".length));
     const baseTarget = looseTarget.get(base);
-    if (baseTarget) out.set(key, baseTarget);
+    if (baseTarget && !baseTarget.endsWith("-latest")) {
+      out.set(key, baseTarget);
+      continue;
+    }
+
+    const candidates = targetsByVendor.get(v) || [];
+    const tokens = base.split("-").filter((t) => t && !GENERAL_PREFIXES.has(t));
+    if (tokens.length === 0) tokens.push(base);
+
+    const matches = candidates.filter((c) =>
+      tokens.every((tok) => c.slug.includes(tok))
+    );
+
+    if (matches.length > 0) {
+      const VARIANT_SUFFIX = /-(fast|preview|mini|thinking|pro|online|batch|beta|exp)/i;
+      matches.sort((a, b) => {
+        const aVar = VARIANT_SUFFIX.test(a.slug);
+        const bVar = VARIANT_SUFFIX.test(b.slug);
+        if (aVar !== bVar) return aVar ? 1 : -1;
+        const aDot = /\d\.\d/.test(a.slug);
+        const bDot = /\d\.\d/.test(b.slug);
+        if (aDot !== bDot) return aDot ? -1 : 1;
+        return b.slug.localeCompare(a.slug);
+      });
+      out.set(key, matches[0].key);
+    }
   }
   return out;
 }

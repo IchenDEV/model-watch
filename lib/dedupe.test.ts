@@ -152,6 +152,28 @@ assert.equal(claudeBase.key, "anthropic:claude-opus-5");
 const pSpelling = collapseKeys(["zhipu:glm-5.3-fast", "zhipu:glm-5p3-fast"]);
 assert.equal(pSpelling.get("zhipu:glm-5p3-fast"), "zhipu:glm-5.3-fast");
 
+// OpenAI latest pointers: gpt-*-latest collapse to actual model releases
+const openaiTestKeys = [
+  "openai:gpt-6-astra",
+  "openai:gpt-6-astra-fast",
+  "openai:gpt-5.6-sol",
+  "openai:gpt-5.6-terra",
+  "openai:gpt-5.6-luna",
+  "openai:gpt-astra-latest",
+  "openai:gpt-sol-latest",
+  "openai:gpt-terra-latest",
+  "openai:gpt-luna-latest",
+];
+const openaiCollapsed = collapseKeys(openaiTestKeys);
+assert.equal(openaiCollapsed.get("openai:gpt-astra-latest"), "openai:gpt-6-astra");
+assert.equal(openaiCollapsed.get("openai:gpt-sol-latest"), "openai:gpt-5.6-sol");
+assert.equal(openaiCollapsed.get("openai:gpt-terra-latest"), "openai:gpt-5.6-terra");
+assert.equal(openaiCollapsed.get("openai:gpt-luna-latest"), "openai:gpt-5.6-luna");
+
+// Origin of -latest pointer must never be true
+const astraLatestIdn = identify("models.dev/openai", "openai/gpt-astra-latest");
+assert.equal(astraLatestIdn.origin, false);
+
 const kept = betterPublished(
   { at: august, precision: "day", origin: true },
   { at: clock, precision: "instant", origin: false }
