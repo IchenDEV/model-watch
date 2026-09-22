@@ -29,13 +29,20 @@ export function toEvent(
 }
 
 const VENDOR_ALIASES: Record<string, string> = {
+  zai: "zhipu",
   "z-ai": "zhipu",
   "zai-org": "zhipu",
   zhipu: "zhipu",
+  zhipuai: "zhipu",
+  bigmodel: "zhipu",
+  thudm: "zhipu",
   moonshotai: "moonshot",
+  moonshot: "moonshot",
   "bytedance-seed": "bytedance",
+  bytedance: "bytedance",
   "meta-llama": "meta",
   qwen: "alibaba",
+  aliyun: "alibaba",
   "google-vertex": "google",
   "google-vertex-anthropic": "anthropic",
   xai: "x-ai",
@@ -48,6 +55,7 @@ const VENDOR_ALIASES: Record<string, string> = {
   meta: "meta",
   mistral: "mistral",
   cohere: "cohere",
+  "deepseek-ai": "deepseek",
   deepseek: "deepseek",
   ai21: "ai21",
   nvidia: "nvidia",
@@ -58,6 +66,15 @@ const VENDOR_ALIASES: Record<string, string> = {
   twelvelabs: "twelvelabs",
   "typesafe-ai": "typesafe",
   "alibaba-cn": "alibaba",
+  xiaomi: "xiaomi",
+  mimo: "xiaomi",
+  minimaxai: "minimax",
+  minimax: "minimax",
+  "stepfun-ai": "stepfun",
+  stepfun: "stepfun",
+  "baichuan-inc": "baichuan",
+  baichuan: "baichuan",
+  internlm: "internlm",
 };
 
 // Hosts that resell someone else's model. They must not become the vendor.
@@ -68,13 +85,16 @@ const GATEWAYS = new Set([
   "vercel",
   "requesty",
   "cloudflare-ai-gateway",
+  "cloudflare-workers-ai",
   "cloudflare",
+  "@cf",
   "together",
   "groq",
   "deepinfra",
   "azure",
   "amazon-bedrock",
   "google-vertex",
+  "vertex",
   "github-copilot",
   "opencode",
   "opencode-go",
@@ -111,6 +131,26 @@ const GATEWAYS = new Set([
   "consensusprotocol",
   "fireworks",
   "fireworks-ai",
+  "accounts",
+  "tee",
+  "novita",
+  "bailian",
+  "gonka24",
+  "infer",
+  "chutes",
+  "regolo-ai",
+  "hyper",
+  "tensorx",
+  "crof",
+  "berget",
+  "cortecs",
+  "runinfra",
+  "aiand",
+  "evroc",
+  "wandb",
+  "kosmik",
+  "iteracompute",
+  "thinkingmachines",
 ]);
 
 // Stealth listings that were later revealed as an existing model.
@@ -130,6 +170,7 @@ const REGION_PREFIXES = new Set([
 ]);
 
 const FAMILY_VENDOR: [RegExp, string][] = [
+  [/^mimo/, "xiaomi"],
   [/^(gemini|gemma)/, "google"],
   [/^(gpt|chatgpt|o\d)/, "openai"],
   [/^claude/, "anthropic"],
@@ -147,6 +188,8 @@ const FAMILY_VENDOR: [RegExp, string][] = [
   [/^(doubao|seed)/, "bytedance"],
   [/^minimax|^abab/, "minimax"],
   [/^step/, "stepfun"],
+  [/^baichuan/, "baichuan"],
+  [/^internlm/, "internlm"],
   [/^command/, "cohere"],
   [/^(nova|titan)/, "amazon"],
   [/^phi/, "microsoft"],
@@ -170,6 +213,29 @@ export function inferFamilyVendor(name: string | undefined): string | undefined 
   return undefined;
 }
 
+const EXCLUSIVE_FAMILIES = new Set([
+  "xiaomi",
+  "zhipu",
+  "alibaba",
+  "anthropic",
+  "openai",
+  "google",
+  "x-ai",
+  "deepseek",
+  "moonshot",
+  "bytedance",
+  "minimax",
+  "stepfun",
+]);
+
+const CLOUD_RESELLERS = new Set([
+  "tencent",
+  "ovhcloud",
+  "azure",
+  "amazon",
+  "google-vertex",
+]);
+
 // Region labels only. Vendor tokens stay in the id so they can be recovered.
 export function stripBedrockPrefixes(name: string): string {
   const parts = name.split(".");
@@ -178,17 +244,28 @@ export function stripBedrockPrefixes(name: string): string {
 }
 
 function normalizeSlug(name: string): string {
-  const slug = stripBedrockPrefixes(name.toLowerCase().replace(/^~/, ""))
+  let slug = stripBedrockPrefixes(name.toLowerCase().replace(/^~/, ""))
     .replace(/@.*$/, "")
-    .replace(/:(batch|free|thinking)$/, "")
+    .replace(/:(batch|free|thinking|official|online)$/i, "")
+    .replace(/-(free|thinking|batch|official|online|contributor-free)$/i, "")
     .replace(/_/g, "-")
     .replace(/-\d{4}-\d{2}-\d{2}$/, "")
     .replace(/-\d{8}$/, "");
+
+  let prev = "";
+  while (prev !== slug) {
+    prev = slug;
+    slug = slug
+      .replace(/:(batch|free|thinking|official|online)$/i, "")
+      .replace(/-(free|thinking|batch|official|online|contributor-free)$/i, "");
+  }
   return SLUG_ALIASES[slug] ?? slug;
 }
 
 export function looseSlug(slug: string): string {
-  return slug.replace(/(\d)\.(\d)/g, "$1-$2");
+  return slug
+    .replace(/(\d)\.(\d)/g, "$1-$2")
+    .replace(/(\d)p(\d)/g, "$1-$2");
 }
 
 function peelVendorPrefix(slug: string): { vendor?: string; slug: string } {
@@ -253,15 +330,25 @@ export function identify(
   const peeled = peelVendorPrefix(slug);
   slug = peeled.slug;
 
-  const orgVendor = aliasVendor(org || peeled.vendor || "");
+  const rawOrg = org || peeled.vendor || "";
+  const orgVendor = aliasVendor(rawOrg);
+  const orgIsGateway = !orgVendor || GATEWAYS.has(orgVendor);
   const hinted = vendorHint ? aliasVendor(vendorHint) : "";
   const fromSlug = inferFamilyVendor(slug) ?? "";
   const hostVendor = aliasVendor(host || "unknown");
-  const vendor =
-    orgVendor ||
-    hinted ||
-    fromSlug ||
-    (GATEWAYS.has(hostVendor) ? "model" : hostVendor);
+
+  let vendor = "";
+  if (
+    fromSlug &&
+    EXCLUSIVE_FAMILIES.has(fromSlug) &&
+    (orgIsGateway || CLOUD_RESELLERS.has(orgVendor) || (GATEWAYS.has(hostVendor) && orgVendor === hostVendor))
+  ) {
+    vendor = fromSlug;
+  } else if (!orgIsGateway) {
+    vendor = orgVendor;
+  } else {
+    vendor = hinted || fromSlug || (GATEWAYS.has(hostVendor) ? "model" : hostVendor);
+  }
 
   return {
     key: `${vendor}:${slug}`,

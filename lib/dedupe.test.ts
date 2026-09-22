@@ -96,13 +96,13 @@ const qwenReseller = identify(
   "llmgateway-providers/consensusprotocol/qwen3.8-27b"
 );
 assert.equal(qwenBase.key, "alibaba:qwen3.8-27b");
-assert.equal(qwenReseller.key, "consensusprotocol:qwen3.8-27b");
+assert.equal(qwenReseller.key, "alibaba:qwen3.8-27b");
 const bailian = identify(
   "models.dev/ofox",
   "ofox/bailian/qwen3.8-27b",
   "alibaba"
 );
-assert.equal(bailian.key, "bailian:qwen3.8-27b");
+assert.equal(bailian.key, "alibaba:qwen3.8-27b");
 const lab = identify(
   "models.dev/nano-gpt",
   "nano-gpt/slowburn/gemma4-31b-splituntied",
@@ -118,12 +118,39 @@ const qwenCollapsed = collapseKeys([
 assert.equal(qwenCollapsed.get(qwenBase.key), "alibaba:qwen3.8-27b");
 assert.equal(qwenCollapsed.get("consensusprotocol:qwen3.8-27b"), "alibaba:qwen3.8-27b");
 assert.equal(qwenCollapsed.get("model:qwen3.8-27b"), "alibaba:qwen3.8-27b");
-assert.equal(qwenCollapsed.get("bailian:qwen3.8-27b"), "bailian:qwen3.8-27b");
+assert.equal(qwenCollapsed.get("bailian:qwen3.8-27b"), "alibaba:qwen3.8-27b");
 
 const jevKeys = collapseKeys([jev.key, jevGateway.key, jevLatest.key]);
 assert.equal(jevKeys.get(jev.key), "typesafe:jev");
 assert.equal(jevKeys.get(jevGateway.key), "typesafe:jev");
 assert.equal(jevKeys.get(jevLatest.key), "typesafe:jev");
+
+// Xiaomi MiMo tests: free vs paid and gateway reselling
+const mimoOfficial = identify("openrouter", "xiaomi/mimo-v2.6-flash");
+const mimoFree = identify("models.dev/opencode", "opencode/mimo-v2.6-flash-free");
+assert.equal(mimoOfficial.key, "xiaomi:mimo-v2.6-flash");
+assert.equal(mimoFree.key, "xiaomi:mimo-v2.6-flash");
+
+const mimoTencent = identify(
+  "models.dev/llmgateway-providers",
+  "llmgateway-providers/tencent/mimo-v2.5-pro"
+);
+assert.equal(mimoTencent.key, "xiaomi:mimo-v2.5-pro");
+
+// Mode suffixes (-thinking, -free, -batch)
+const glmFree = identify("models.dev/orcarouter", "orcarouter/zhipu/glm-5.3-flash-free");
+const glmBase = identify("models.dev/zhipu", "zhipu/glm-5.3-flash");
+assert.equal(glmFree.key, "zhipu:glm-5.3-flash");
+assert.equal(glmBase.key, "zhipu:glm-5.3-flash");
+
+const claudeThinking = identify("models.dev/302ai", "302ai/anthropic/claude-opus-5-thinking");
+const claudeBase = identify("models.dev/anthropic", "anthropic/claude-opus-5");
+assert.equal(claudeThinking.key, "anthropic:claude-opus-5");
+assert.equal(claudeBase.key, "anthropic:claude-opus-5");
+
+// Version notation collapse: 5p3 -> 5.3
+const pSpelling = collapseKeys(["zhipu:glm-5.3-fast", "zhipu:glm-5p3-fast"]);
+assert.equal(pSpelling.get("zhipu:glm-5p3-fast"), "zhipu:glm-5.3-fast");
 
 const kept = betterPublished(
   { at: august, precision: "day", origin: true },
