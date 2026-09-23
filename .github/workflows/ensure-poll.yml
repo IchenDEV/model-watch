@@ -18,6 +18,7 @@ jobs:
       - name: Start poller if idle
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           active=$(gh run list --workflow=poll.yml --limit 30 --json status --jq '[.[] | select(.status=="in_progress" or .status=="queued" or .status=="waiting" or .status=="requested" or .status=="pending")] | length')
           echo "active pollers: $active"

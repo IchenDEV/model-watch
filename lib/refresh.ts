@@ -7,9 +7,12 @@ import {
   betterPublished,
   collapseKeys,
   identify,
+  looseSlug,
   precisionOf,
   preferCanonical,
+  slugOf,
   toEvent,
+  vendorOf,
   type PublishedMark,
 } from "./dedupe";
 import { notifyFeishu } from "./notify";
@@ -17,7 +20,7 @@ import { notifyFeishu } from "./notify";
 const BOOTSTRAP_COUNT = 20;
 const PRUNE_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 const RECONCILE_EVERY_MS = 12 * 60 * 60 * 1000;
-const RECONCILE_VERSION = "9";
+const RECONCILE_VERSION = "10";
 
 export interface SourceResult {
   fetched: number;
@@ -68,40 +71,43 @@ async function processItems(
       item.publishedAtPrecision
     );
     event.publishedOrigin = idn.origin;
-    const wonCanonical = await store.setCanonicalNX(idn.key, event.id);
-    if (!wonCanonical) {
-      const winnerId = await store.getCanonical(idn.key);
-      if (winnerId) {
-        const existing = await store.getEvent(winnerId);
-        if (existing) {
-          const next = betterPublished(markOf(existing), markOf(event));
-          const sources = existing.sources.includes(event.source)
-            ? existing.sources
-            : [...existing.sources, event.source];
-          const changed =
-            next.at !== existing.publishedAt ||
-            next.precision !== existing.publishedAtPrecision ||
-            next.origin !== existing.publishedOrigin ||
-            sources.length !== existing.sources.length;
-          if (changed) {
-            const updated: ModelEvent = {
-              ...existing,
-              canonical: preferCanonical(existing.canonical, idn.key),
-              publishedAt: next.at,
-              publishedAtPrecision: next.at == null ? undefined : next.precision,
-              publishedOrigin: next.origin,
-              sources,
-            };
-            await store.writeEvents([updated]);
-            const queued = toNotify.find((entry) => entry.id === existing.id);
-            if (queued) Object.assign(queued, updated);
-          }
-          continue;
+
+    const looseKey = `loose:${idn.vendor}:${looseSlug(idn.slug)}`;
+    let winnerId = await store.getCanonical(idn.key);
+    if (!winnerId) {
+      winnerId = await store.getCanonical(looseKey);
+    }
+
+    if (winnerId) {
+      const existing = await store.getEvent(winnerId);
+      if (existing) {
+        const next = betterPublished(markOf(existing), markOf(event));
+        const sources = existing.sources.includes(event.source)
+          ? existing.sources
+          : [...existing.sources, event.source];
+        const changed =
+          next.at !== existing.publishedAt ||
+          next.precision !== existing.publishedAtPrecision ||
+          next.origin !== existing.publishedOrigin ||
+          sources.length !== existing.sources.length;
+        if (changed) {
+          const updated: ModelEvent = {
+            ...existing,
+            canonical: preferCanonical(existing.canonical, idn.key),
+            publishedAt: next.at,
+            publishedAtPrecision: next.at == null ? undefined : next.precision,
+            publishedOrigin: next.origin,
+            sources,
+          };
+          await store.writeEvents([updated]);
+          const queued = toNotify.find((entry) => entry.id === existing.id);
+          if (queued) Object.assign(queued, updated);
         }
-        // 赢家事件已被清理，让位给当前事件
-        await store.setCanonical(idn.key, event.id);
+        continue;
       }
     }
+    await store.setCanonical(idn.key, event.id);
+    await store.setCanonical(looseKey, event.id);
     const added = await store.addEventNX(event);
     if (!added) continue;
     result.new += 1;
@@ -349,8 +355,12 @@ async function reconcileEvents(
       sourceList.some((source) => !winner.sources.includes(source));
     if (changed) writes.push(next);
     canonicals.push([key, winner.id]);
+    canonicals.push([`loose:${vendorOf(key)}:${looseSlug(slugOf(key))}`, winner.id]);
     for (const [sourceKey, mapped] of collapsed) {
-      if (mapped === key) canonicals.push([sourceKey, winner.id]);
+      if (mapped === key) {
+        canonicals.push([sourceKey, winner.id]);
+        canonicals.push([`loose:${vendorOf(sourceKey)}:${looseSlug(slugOf(sourceKey))}`, winner.id]);
+      }
     }
     for (const other of group.slice(1)) deletions.push(other.id);
   }

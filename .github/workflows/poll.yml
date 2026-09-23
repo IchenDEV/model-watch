@@ -44,6 +44,7 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           queued=$(gh run list --workflow=poll.yml --limit 30 --json status --jq '[.[] | select(.status=="queued" or .status=="waiting" or .status=="requested" or .status=="pending")] | length')
           echo "queued pollers: $queued"

@@ -174,6 +174,20 @@ assert.equal(openaiCollapsed.get("openai:gpt-luna-latest"), "openai:gpt-5.6-luna
 const astraLatestIdn = identify("models.dev/openai", "openai/gpt-astra-latest");
 assert.equal(astraLatestIdn.origin, false);
 
+// Gateway and family inference tests for today's new models
+const mimoCline = identify("models.dev/cline-pass", "cline-pass/mimo-v2.6-pro");
+assert.equal(mimoCline.key, "xiaomi:mimo-v2.6-pro");
+
+const solarMini = identify("openrouter", "upstage/solar-mini-4");
+assert.equal(solarMini.key, "upstage:solar-mini-4");
+
+// Claude Opus 5.5 hyphen and dot spelling collapse
+const claudeOpusKeys = collapseKeys([
+  "anthropic:claude-opus-5.5",
+  "anthropic:claude-opus-5-5",
+]);
+assert.equal(claudeOpusKeys.get("anthropic:claude-opus-5-5"), "anthropic:claude-opus-5.5");
+
 const kept = betterPublished(
   { at: august, precision: "day", origin: true },
   { at: clock, precision: "instant", origin: false }

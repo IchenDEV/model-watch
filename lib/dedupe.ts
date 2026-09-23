@@ -75,6 +75,9 @@ const VENDOR_ALIASES: Record<string, string> = {
   "baichuan-inc": "baichuan",
   baichuan: "baichuan",
   internlm: "internlm",
+  "xiaomi-token-plan-cn": "xiaomi",
+  "xiaomi-token-plan-ams": "xiaomi",
+  "xiaomi-token-plan-sgp": "xiaomi",
 };
 
 // Hosts that resell someone else's model. They must not become the vendor.
@@ -151,6 +154,20 @@ const GATEWAYS = new Set([
   "kosmik",
   "iteracompute",
   "thinkingmachines",
+  "cline-pass",
+  "cline",
+  "digitalocean",
+  "vultr",
+  "snowflake-cortex",
+  "above",
+  "ambient",
+  "agentrouter",
+  "meganova",
+  "inferx",
+  "nan",
+  "gitlab",
+  "azure-cognitive-services",
+  "databricks",
 ]);
 
 // Stealth listings that were later revealed as an existing model.
@@ -198,6 +215,7 @@ const FAMILY_VENDOR: [RegExp, string][] = [
   [/^baichuan/, "baichuan"],
   [/^internlm/, "internlm"],
   [/^command/, "cohere"],
+  [/^(solar|solar-mini|solar-pro)/, "upstage"],
   [/^(nova|titan)/, "amazon"],
   [/^phi/, "microsoft"],
   [/^nemotron/, "nvidia"],
@@ -233,6 +251,8 @@ const EXCLUSIVE_FAMILIES = new Set([
   "bytedance",
   "minimax",
   "stepfun",
+  "cohere",
+  "upstage",
 ]);
 
 const CLOUD_RESELLERS = new Set([
@@ -381,11 +401,11 @@ export function identify(
   };
 }
 
-function vendorOf(key: string): string {
+export function vendorOf(key: string): string {
   return key.slice(0, key.indexOf(":"));
 }
 
-function slugOf(key: string): string {
+export function slugOf(key: string): string {
   return key.slice(key.indexOf(":") + 1);
 }
 
