@@ -15,16 +15,6 @@ jobs:
   ensure:
     runs-on: ubuntu-latest
     steps:
-      - name: Test refresh endpoint from GitHub Actions runner
-        run: |
-          echo "=== Testing POST /api/refresh ==="
-          RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "${{ vars.REFRESH_URL }}/api/refresh?secret=${{ secrets.CRON_SECRET }}" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36" \
-            --max-time 30 || true)
-          echo "$RESP" | tail -n 20
-          echo "=== Test complete ==="
-
       - name: Start poller if idle
         env:
           GH_TOKEN: ${{ github.token }}
