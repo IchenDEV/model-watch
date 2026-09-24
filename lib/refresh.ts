@@ -20,7 +20,7 @@ import { notifyFeishu } from "./notify";
 const BOOTSTRAP_COUNT = 20;
 const PRUNE_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 const RECONCILE_EVERY_MS = 12 * 60 * 60 * 1000;
-const RECONCILE_VERSION = "10";
+const RECONCILE_VERSION = "11";
 
 export interface SourceResult {
   fetched: number;

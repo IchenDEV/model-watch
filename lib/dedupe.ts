@@ -173,6 +173,7 @@ const GATEWAYS = new Set([
 // Stealth listings that were later revealed as an existing model.
 const SLUG_ALIASES: Record<string, string> = {
   "union-alpha": "pareto",
+  "space-bunny": "space-bunny-alpha",
   "gpt-56-luna": "gpt-5.6-luna",
   "gpt-56-sol": "gpt-5.6-sol",
   "gpt-56-terra": "gpt-5.6-terra",
@@ -362,7 +363,7 @@ export function identify(
     if (segments[0] === host) modelParts = segments.slice(1);
   } else if (source === "huggingface") {
     host = segments[0] ?? source;
-  } else if (source === "openrouter") {
+  } else if (source === "openrouter" || source === "opencode") {
     host = source;
   } else {
     host = segments[0] ?? source;

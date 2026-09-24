@@ -188,6 +188,14 @@ const claudeOpusKeys = collapseKeys([
 ]);
 assert.equal(claudeOpusKeys.get("anthropic:claude-opus-5-5"), "anthropic:claude-opus-5.5");
 
+// Space Bunny stealth model from OpenRouter vs OpenCode
+const bunnyOpenRouter = identify("openrouter", "stealth/space-bunny-alpha");
+const bunnyOpenCode = identify("opencode", "space-bunny-free");
+const bunnyGateway = identify("models.dev/opencode-go", "opencode-go/space-bunny-free");
+assert.equal(bunnyOpenRouter.key, "model:space-bunny-alpha");
+assert.equal(bunnyOpenCode.key, "model:space-bunny-alpha");
+assert.equal(bunnyGateway.key, "model:space-bunny-alpha");
+
 const kept = betterPublished(
   { at: august, precision: "day", origin: true },
   { at: clock, precision: "instant", origin: false }
