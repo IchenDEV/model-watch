@@ -1,10 +1,12 @@
-import { getStore } from "@/lib/store";
+import { getCachedTimeline } from "@/lib/cached-events";
 import TimelineClient from "./timeline-client";
 
+// Render at request time (no Redis access during build); Redis reads are
+// de-duplicated by unstable_cache in getCachedTimeline.
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const events = await getStore().listEvents(200);
+  const events = await getCachedTimeline();
   return (
     <main className="mx-auto w-full max-w-4xl px-6 py-10">
       <header className="mb-8">

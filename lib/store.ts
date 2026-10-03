@@ -157,6 +157,12 @@ class FileStore implements Store {
   }
 }
 
+/** Hot-path list cache size (covers page 200 + feeds 50). */
+const TIMELINE_CACHE_KEY = "cache:timeline";
+const TIMELINE_CACHE_LIMIT = 250;
+/** Batch size for MGET / pipeline writes (keeps REST payload bounded). */
+const EVENT_BATCH = 100;
+
 class RedisStore implements Store {
   private clientPromise: Promise<import("@upstash/redis").Redis> | null = null;
 
@@ -175,14 +181,14 @@ class RedisStore implements Store {
 
   async getSnapshot(source: string): Promise<string[] | null> {
     const redis = await this.client();
-    const raw = await redis.get<string>(`snapshot:${source}`);
+    const raw = await redis.get<string | string[]>(`snapshot:${source}`);
     if (!raw) return null;
     return typeof raw === "string" ? (JSON.parse(raw) as string[]) : raw;
   }
 
   async setSnapshot(source: string, ids: string[]): Promise<void> {
     const redis = await this.client();
-    await redis.set(`snapshot:${source}`, JSON.stringify(ids));
+    await redis.set(`snapshot:${source}`, ids);
   }
 
   async addEventNX(event: ModelEvent): Promise<boolean> {
@@ -194,57 +200,106 @@ class RedisStore implements Store {
       { score: event.publishedAt ?? event.detectedAt, member: event.id }
     );
     if (added !== 1) return false;
-    await redis.zadd(
+    const pipe = redis.pipeline();
+    pipe.zadd(
       "events_detected",
       { nx: true },
       { score: event.detectedAt, member: event.id }
     );
-    await redis.hset(`event:${event.id}`, serializeEvent(event));
+    pipe.set(`event:${event.id}`, event);
+    pipe.del(TIMELINE_CACHE_KEY);
+    await pipe.exec();
     return true;
   }
 
   async getEvent(id: string): Promise<ModelEvent | null> {
     const redis = await this.client();
-    const raw = await redis.hgetall<Record<string, string>>(`event:${id}`);
-    if (!raw || !raw.id) return null;
-    return deserializeEvent(raw);
+    // Prefer JSON string keys; GET errors with WRONGTYPE on legacy hashes.
+    try {
+      const raw = await redis.get<unknown>(`event:${id}`);
+      const fromJson = parseStoredEvent(raw);
+      if (fromJson) return fromJson;
+    } catch {
+      // fall through to hash read
+    }
+
+    try {
+      const hash = await redis.hgetall<Record<string, unknown>>(`event:${id}`);
+      if (!hash || !hash.id) return null;
+      const event = deserializeEvent(hash);
+      // Migrate so future listEvents can MGET in one command.
+      await redis.set(`event:${id}`, event);
+      return event;
+    } catch {
+      return null;
+    }
   }
 
   async updateEventSources(id: string, sources: string[]): Promise<void> {
-    const redis = await this.client();
-    await redis.hset(`event:${id}`, { sources: JSON.stringify(sources) });
+    const existing = await this.getEvent(id);
+    if (!existing) return;
+    await this.writeEvents([{ ...existing, sources }]);
   }
 
   async writeEvents(events: ModelEvent[]): Promise<void> {
+    if (events.length === 0) return;
     const redis = await this.client();
-    for (let i = 0; i < events.length; i += 100) {
+    for (let i = 0; i < events.length; i += EVENT_BATCH) {
       const pipe = redis.pipeline();
-      for (const event of events.slice(i, i + 100)) {
-        pipe.hset(`event:${event.id}`, serializeEvent(event));
+      for (const event of events.slice(i, i + EVENT_BATCH)) {
+        pipe.set(`event:${event.id}`, event);
         pipe.zadd("events", {
           score: event.publishedAt ?? event.detectedAt,
           member: event.id,
         });
       }
+      if (i === 0) pipe.del(TIMELINE_CACHE_KEY);
       await pipe.exec();
     }
   }
 
   async deleteEvents(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
     const redis = await this.client();
-    for (let i = 0; i < ids.length; i += 100) {
+    for (let i = 0; i < ids.length; i += EVENT_BATCH) {
       const pipe = redis.pipeline();
-      for (const id of ids.slice(i, i + 100)) {
+      for (const id of ids.slice(i, i + EVENT_BATCH)) {
         pipe.zrem("events", id);
         pipe.zrem("events_detected", id);
         pipe.del(`event:${id}`);
       }
+      if (i === 0) pipe.del(TIMELINE_CACHE_KEY);
       await pipe.exec();
     }
   }
 
   async listEvents(limit: number, before?: number): Promise<ModelEvent[]> {
     const redis = await this.client();
+    const useTimelineCache =
+      before === undefined && limit <= TIMELINE_CACHE_LIMIT;
+
+    // Common path (home / feeds): 1 GET against a denormalized cache.
+    if (useTimelineCache) {
+      const cached = await redis.get<ModelEvent[] | string>(TIMELINE_CACHE_KEY);
+      const list = parseTimelineCache(cached);
+      if (list) return list.slice(0, limit);
+    }
+
+    const fetchLimit = useTimelineCache ? TIMELINE_CACHE_LIMIT : limit;
+    const events = await this.loadEventsByScore(redis, fetchLimit, before);
+
+    if (useTimelineCache) {
+      await redis.set(TIMELINE_CACHE_KEY, events);
+    }
+
+    return events.slice(0, limit);
+  }
+
+  private async loadEventsByScore(
+    redis: import("@upstash/redis").Redis,
+    limit: number,
+    before?: number
+  ): Promise<ModelEvent[]> {
     const max: "+inf" | `(${number}` =
       before === undefined ? "+inf" : `(${before}`;
     const ids = await redis.zrange<string[]>("events", max, "-inf", {
@@ -254,13 +309,53 @@ class RedisStore implements Store {
       count: limit,
     });
     if (!ids || ids.length === 0) return [];
-    const pipe = redis.pipeline();
-    for (const id of ids) pipe.hgetall(`event:${id}`);
-    const rows = (await pipe.exec()) as (Record<string, unknown> | null)[];
-    return rows
-      .filter((r): r is Record<string, unknown> => !!r && !!r.id)
-      .map(deserializeEvent)
-      .sort(compareEvents);
+
+    // MGET is one billable command for the whole batch (vs N HGETALL).
+    const events: ModelEvent[] = [];
+    const missing: string[] = [];
+    for (let i = 0; i < ids.length; i += EVENT_BATCH) {
+      const chunk = ids.slice(i, i + EVENT_BATCH);
+      const rows = await redis.mget<(unknown | null)[]>(
+        ...chunk.map((id) => `event:${id}`)
+      );
+      for (let j = 0; j < chunk.length; j++) {
+        const parsed = parseStoredEvent(rows?.[j] ?? null);
+        if (parsed) events.push(parsed);
+        else missing.push(chunk[j]);
+      }
+    }
+
+    if (missing.length > 0) {
+      const migrated = await this.hydrateLegacyHashes(redis, missing);
+      events.push(...migrated);
+    }
+
+    return events.sort(compareEvents);
+  }
+
+  private async hydrateLegacyHashes(
+    redis: import("@upstash/redis").Redis,
+    ids: string[]
+  ): Promise<ModelEvent[]> {
+    const out: ModelEvent[] = [];
+    for (let i = 0; i < ids.length; i += EVENT_BATCH) {
+      const chunk = ids.slice(i, i + EVENT_BATCH);
+      const pipe = redis.pipeline();
+      for (const id of chunk) pipe.hgetall(`event:${id}`);
+      const rows = (await pipe.exec()) as (Record<string, unknown> | null)[];
+      const migrate = redis.pipeline();
+      let migrateCount = 0;
+      for (let j = 0; j < chunk.length; j++) {
+        const row = rows[j];
+        if (!row || !row.id) continue;
+        const event = deserializeEvent(row);
+        out.push(event);
+        migrate.set(`event:${chunk[j]}`, event);
+        migrateCount += 1;
+      }
+      if (migrateCount > 0) await migrate.exec();
+    }
+    return out;
   }
 
   async setCanonicalNX(canonicalKey: string, eventId: string): Promise<boolean> {
@@ -277,6 +372,7 @@ class RedisStore implements Store {
   }
 
   async setCanonicalMany(entries: [string, string][]): Promise<void> {
+    if (entries.length === 0) return;
     const redis = await this.client();
     for (let i = 0; i < entries.length; i += 200) {
       const pipe = redis.pipeline();
@@ -309,33 +405,66 @@ class RedisStore implements Store {
       byScore: true,
     });
     if (!ids || ids.length === 0) return;
-    const pipe = redis.pipeline();
-    for (const id of ids) {
-      pipe.zrem("events", id);
-      pipe.zrem("events_detected", id);
-      pipe.del(`event:${id}`);
+    for (let i = 0; i < ids.length; i += EVENT_BATCH) {
+      const pipe = redis.pipeline();
+      for (const id of ids.slice(i, i + EVENT_BATCH)) {
+        pipe.zrem("events", id);
+        pipe.zrem("events_detected", id);
+        pipe.del(`event:${id}`);
+      }
+      if (i === 0) pipe.del(TIMELINE_CACHE_KEY);
+      await pipe.exec();
     }
-    await pipe.exec();
   }
 }
 
-function serializeEvent(e: ModelEvent): Record<string, string> {
-  return {
-    id: e.id,
-    source: e.source,
-    externalId: e.externalId,
-    canonical: e.canonical,
-    title: e.title,
-    provider: e.provider,
-    url: e.url,
-    summary: e.summary,
-    tags: JSON.stringify(e.tags),
-    sources: JSON.stringify(e.sources),
-    detectedAt: String(e.detectedAt),
-    publishedAt: e.publishedAt === undefined ? "" : String(e.publishedAt),
-    publishedAtPrecision: e.publishedAtPrecision ?? "",
-    publishedOrigin: e.publishedOrigin ? "1" : "0",
-  };
+function parseTimelineCache(
+  raw: ModelEvent[] | string | null | undefined
+): ModelEvent[] | null {
+  if (!raw) return null;
+  const list =
+    typeof raw === "string" ? (JSON.parse(raw) as ModelEvent[]) : raw;
+  if (!Array.isArray(list) || list.length === 0) return null;
+  return list;
+}
+
+function parseStoredEvent(raw: unknown): ModelEvent | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    try {
+      return parseStoredEvent(JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  // JSON blob written by SET (preferred) — fields are native types.
+  if (typeof r.detectedAt === "number" && typeof r.id === "string") {
+    return {
+      id: r.id,
+      source: String(r.source ?? ""),
+      externalId: String(r.externalId ?? ""),
+      canonical: String(r.canonical ?? ""),
+      title: String(r.title ?? ""),
+      provider: String(r.provider ?? ""),
+      url: String(r.url ?? ""),
+      summary: String(r.summary ?? ""),
+      tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+      sources: Array.isArray(r.sources) ? (r.sources as string[]) : [],
+      detectedAt: r.detectedAt,
+      publishedAt:
+        typeof r.publishedAt === "number" ? r.publishedAt : undefined,
+      publishedAtPrecision:
+        r.publishedAtPrecision === "day" || r.publishedAtPrecision === "instant"
+          ? r.publishedAtPrecision
+          : undefined,
+      publishedOrigin: Boolean(r.publishedOrigin),
+    };
+  }
+  // Legacy hash field shapes (all strings).
+  if (r.id) return deserializeEvent(r);
+  return null;
 }
 
 function jsonField(v: unknown): unknown {

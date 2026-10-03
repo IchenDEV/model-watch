@@ -19,6 +19,7 @@ import { notifyFeishu } from "./notify";
 
 const BOOTSTRAP_COUNT = 20;
 const PRUNE_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+const PRUNE_EVERY_MS = 24 * 60 * 60 * 1000;
 const RECONCILE_EVERY_MS = 12 * 60 * 60 * 1000;
 const RECONCILE_VERSION = "11";
 
@@ -46,7 +47,15 @@ async function processItems(
   const previous = await store.getSnapshot(sourceName);
   const bootstrap = previous === null;
   const prevSet = new Set(previous ?? []);
-  await store.setSnapshot(sourceName, items.map((i) => i.externalId));
+  const nextIds = items.map((i) => i.externalId);
+  // Avoid rewriting identical snapshots — each SET is a billable Redis command.
+  if (
+    previous === null ||
+    previous.length !== nextIds.length ||
+    previous.some((id, i) => id !== nextIds[i])
+  ) {
+    await store.setSnapshot(sourceName, nextIds);
+  }
 
   let candidates: { item: SourceItem; notify: boolean }[];
   if (bootstrap) {
@@ -194,7 +203,7 @@ export async function runRefresh(): Promise<RefreshResult> {
   }
 
   try {
-    await getStore().pruneEvents(PRUNE_AGE_MS);
+    await pruneIfDue(getStore());
   } catch (err) {
     console.error("prune failed:", err);
   }
@@ -229,6 +238,13 @@ async function reconcileIfDue(
   await store.setMeta("catalog-reconcile-version", RECONCILE_VERSION);
   await store.setMeta("catalog-reconcile-at", String(Date.now()));
   return removed;
+}
+
+async function pruneIfDue(store: Store): Promise<void> {
+  const last = await store.getMeta("prune-at");
+  if (last && Date.now() - Number(last) < PRUNE_EVERY_MS) return;
+  await store.pruneEvents(PRUNE_AGE_MS);
+  await store.setMeta("prune-at", String(Date.now()));
 }
 
 function listingRank(event: ModelEvent, targetKey: string): number {

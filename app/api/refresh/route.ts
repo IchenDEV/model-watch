@@ -1,3 +1,4 @@
+import { revalidateTag } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 import { runRefresh } from "@/lib/refresh";
 
@@ -14,6 +15,10 @@ async function handle(request: NextRequest) {
     }
   }
   const result = await runRefresh();
+  const changed = Object.values(result.sources).some((s) => s.new > 0);
+  if (changed || result.notified > 0) {
+    revalidateTag("events", "max");
+  }
   return NextResponse.json(result);
 }
 
